@@ -177,7 +177,7 @@ class WorkflowExecutor:
             return self.status(attempt_id)  # the owning executor routes to finish
         values, snapshot = self._snapshot(attempt_id)
         with self.store.lease(attempt_id, self.lease_seconds):
-            if snapshot.next:
+            if values.get("phase") != "finish":
                 resume = Command(resume={"cancelled": True}) if snapshot.interrupts else None
                 self._drive(attempt_id, resume)
                 values, snapshot = self._snapshot(attempt_id)
@@ -196,10 +196,14 @@ class WorkflowExecutor:
         status = values.get("status", "running")
         blocker = values.get("blocker", "")
         pending = None
+        # ``snapshot.next`` is not a completion signal: after a crash between a
+        # task's saved writes and the next checkpoint it can be empty while
+        # work remains. Only the finish node ends a workflow.
+        finished = values.get("phase") == "finish"
         if snapshot.interrupts:
             pending = snapshot.interrupts[0].value
             status = "waiting_for_input"
-        elif snapshot.next and status not in PARKING:
+        elif not finished and status not in PARKING:
             holder = self.store.lease_holder(attempt_id)
             if self.store.controls(attempt_id)["cancel"]:
                 status = "cancel_requested"

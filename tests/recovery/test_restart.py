@@ -73,6 +73,10 @@ def test_crash_windows_resume_without_repeating_the_write(tmp_path, point):
            else {"LGW_FIXTURE_CRASH": f"{point}:write"})
     code, _, _ = run_cli(tmp_path, "start", request, env=env)
     assert code == 137  # really died
+    code, seen, _ = run_cli(tmp_path, "status", "att-1")
+    # A dead owner's lease does not count, and an empty LangGraph ``next``
+    # after a torn checkpoint does not mean finished.
+    assert (seen["status"], seen["blocker"]) == ("paused", "interrupted")
     code, status, err = run_cli(tmp_path, "resume", "att-1")
     assert status["status"] == "verified", err
     host = FixtureHost.from_file(tmp_path)

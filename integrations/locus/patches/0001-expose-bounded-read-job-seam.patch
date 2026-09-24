@@ -1,0 +1,58 @@
+diff --git a/agent/ollama_code/orchestration.py b/agent/ollama_code/orchestration.py
+index 1e522b4..7906ff7 100644
+--- a/agent/ollama_code/orchestration.py
++++ b/agent/ollama_code/orchestration.py
+@@ -2281,6 +2281,23 @@ class TeamOrchestrator:
+                     output.append(result)
+         return output
+ 
++    def run_read_job(
++        self,
++        run_id: str,
++        job: AgentJob,
++        profile: AgentProfile,
++        budget: OrchestrationBudget,
++    ) -> AgentResult:
++        """Run one bounded, non-delegating read-only job.
++
++        This is the specialist path of a one-job wave, exposed for external
++        executors: the same scheduler lease, usage ledger, stop handling and
++        ``agent_job_*`` events. It offers no tools and never grants writes.
++        """
++        if job.execution_kind == "write":
++            raise OrchestrationError("run_read_job only runs read or check jobs")
++        return self._call_agent(run_id, job, profile, budget)
++
+     def _call_agent(
+         self,
+         run_id: str,
+diff --git a/agent/tests/test_orchestration.py b/agent/tests/test_orchestration.py
+index d2f0c8f..460d2f1 100644
+--- a/agent/tests/test_orchestration.py
++++ b/agent/tests/test_orchestration.py
+@@ -1274,3 +1274,25 @@ def test_returning_handoff_reuses_worktree_with_local_state_as_new_baseline(
+ def test_agent_job_is_a_plain_non_recursive_record():
+     job = AgentJob("one", "planner", "plan", (), "specialist")
+     assert not hasattr(job, "delegate")
++
++
++def test_run_read_job_is_the_one_job_specialist_path(monkeypatch):
++    events = []
++    _, team, profiles, _ = parse_manifest(_manifest())
++    orchestrator = TeamOrchestrator(events.append, lambda: False)
++    seen = []
++
++    def raw_call(run_id, profile, messages, budget, **_kwargs):
++        seen.append((run_id, profile.id, messages[-1]["content"]))
++        return SimpleNamespace(content='{"findings": ["ok"]}', prompt_eval_count=3,
++                               eval_count=2, thinking="")
++
++    monkeypatch.setattr(orchestrator, "_raw_call", raw_call)
++    job = AgentJob("inspect", "planner", "Inspect it", (), "research", execution_kind="read")
++    result = orchestrator.run_read_job("run-1", job, profiles["planner"], team.budget)
++    assert result.findings == ["ok"]
++    assert seen == [("run-1", "planner", "Inspect it")]
++    assert [event["type"] for event in events] == ["agent_job_started", "agent_job_completed"]
++    writer_job = AgentJob("write", "planner", "Change it", (), "code")
++    with pytest.raises(OrchestrationError, match="read or check"):
++        orchestrator.run_read_job("run-1", writer_job, profiles["planner"], team.budget)

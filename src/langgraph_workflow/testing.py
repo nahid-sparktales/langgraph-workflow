@@ -407,6 +407,82 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
+def run_host_contract(host: Any, request: WorkflowRequest, *,
+                      count_events: Any) -> dict[str, str]:
+    """Behavioral contract every :class:`WorkflowHost` must satisfy.
+
+    Runs against a fresh host whose write job changes at least one file.
+    ``count_events(event_id)`` returns how many times the host stored that
+    event. Returns ``{check: "pass" | "fail: reason"}``; hosts share it so the
+    fixture host and a real adapter are held to the same rules.
+    """
+    from .events import make_event
+    from .ports import CAPABILITIES as KNOWN
+
+    results: dict[str, str] = {}
+
+    def check(name: str, ok: bool, why: str = "") -> None:
+        results[name] = "pass" if ok else f"fail: {why}"
+
+    base = request.attempt_id
+
+    def job(key: str, kind: str, access: str, instruction: str = "contract") -> JobSpec:
+        return JobSpec(f"{base}/{key}", request.run_id, base, kind, access, instruction,
+                       checkout_ref=request.checkout_ref)
+
+    caps = host.capabilities()
+    check("capabilities_are_known", caps <= KNOWN, str(sorted(caps - KNOWN)))
+    first, second = host.admit(request), host.admit(request)
+    check("admit_is_idempotent", first.admitted and first.policy_ref == second.policy_ref)
+    check("revalidate_rejects_other_policy",
+          not host.revalidate(request, "some-other-policy").admitted)
+    check("revalidate_accepts_saved_policy", host.revalidate(request, first.policy_ref).admitted)
+    check("lookup_unknown_is_none", host.lookup(f"{base}/never") is None)
+    read = job("contract-read", "inspect", "read")
+    receipt = host.execute(read)
+    check("read_job_settles_without_changes",
+          receipt.status == "settled" and not receipt.changed_files and bool(receipt.job_id),
+          f"{receipt.status} {receipt.changed_files}")
+    again = host.execute(read)
+    check("execute_is_idempotent", again.job_id == receipt.job_id and again.status == "settled",
+          f"{again.job_id} != {receipt.job_id}")
+    check("lookup_returns_recorded_outcome", (host.lookup(read.operation_id) or again).job_id
+          == receipt.job_id)
+    conflicting = job("contract-read", "inspect", "read", "different input")
+    conflict = host.execute(conflicting)
+    check("fingerprint_conflict_is_not_executed",
+          conflict.input_fingerprint != conflicting.input_fingerprint
+          or conflict.status == "uncertain", f"{conflict.status}")
+    write = host.execute(job("contract-write", "write", "write"))
+    check("write_job_reports_changes", write.status == "settled" and bool(write.changed_files),
+          f"{write.status} {write.changed_files}")
+    report = host.verify(request, (
+        {"id": "contract-absent", "kind": "file_contains", "path": "result.txt",
+         "value": "never-present-value", "requirement": "absent value"},
+        {"id": "contract-human", "kind": "human_review", "requirement": "owner review"},
+    ), final=False)
+    by_id = {r.check_id: r for r in report.results}
+    absent, human = by_id.get("contract-absent"), by_id.get("contract-human")
+    check("failed_check_is_failed_with_receipt",
+          absent is not None and absent.state == "failed" and bool(absent.receipt_id),
+          str(absent))
+    check("human_review_is_never_passed", human is not None and human.state == "needs_review",
+          str(human))
+    check("report_is_not_passed", report.status != "passed", report.status)
+    event = make_event("workflow.started", request.to_dict(), key="contract")
+    host.publish(event)
+    host.publish(event)
+    stored = count_events(event.event_id)
+    check("publish_deduplicates_event_id", stored == 1, f"stored {stored}")
+    intruder = DecisionResponse("d", request.run_id, base, 1, "0" * 64, "approve",
+                                actor="intruder-not-authenticated")
+    check("unauthenticated_decision_is_refused", not host.authorize_decision(intruder))
+    check("idle_cancel_is_quiescent", host.cancel(base) is True)
+    after = host.execute(job("contract-after-cancel", "inspect", "read"))
+    check("no_new_job_starts_after_cancel", after.status == "cancelled", after.status)
+    return results
+
+
 class _DieOnCommit:
     """Connection proxy that kills the process instead of committing."""
 
