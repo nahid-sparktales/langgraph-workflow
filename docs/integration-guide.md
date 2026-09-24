@@ -19,7 +19,7 @@ adapter (`integrations/locus/adapter_reference.py`) is a complete example.
 ## Local development against Locus
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
+python3 -m venv .venv && .venv/bin/pip install -e '.[dev]' -c constraints.txt
 .venv/bin/python -m pytest -q
 python3 -m build
 integrations/locus/prepare_checkout.sh /path/to/locus <sha> /tmp/locus-it "$PWD/dist/langgraph_workflow-0.1.0-py3-none-any.whl"

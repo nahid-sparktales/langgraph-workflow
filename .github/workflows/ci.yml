@@ -9,33 +9,47 @@ permissions:
 
 jobs:
   test:
+    name: pinned (Locus resolution) / ${{ matrix.os }} / ${{ matrix.python }}
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, ubuntu-24.04]
-        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
-        deps: [latest]
         include:
-          # The resolution Locus's hash-locked runtime produces (websockets==17.0).
-          - os: macos-15
-            python: "3.14"
-            deps: locus-floor
-          - os: ubuntu-24.04
-            python: "3.10"
-            deps: locus-floor
+          - {os: ubuntu-24.04, python: "3.10"}
+          - {os: ubuntu-24.04, python: "3.11"}
+          - {os: ubuntu-24.04, python: "3.12"}
+          - {os: ubuntu-24.04, python: "3.13"}
+          - {os: ubuntu-24.04, python: "3.14"}
+          - {os: macos-15, python: "3.14"}  # Locus's bundled Python and platform
     runs-on: ${{ matrix.os }}
     env:
       LANGSMITH_TRACING: "false"
+      # Also applies to the fresh venv the packaging test creates.
+      PIP_CONSTRAINT: ${{ github.workspace }}/constraints.txt
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install -e '.[dev]'
-      - if: matrix.deps == 'locus-floor'
-        run: python -m pip install "langgraph==1.2.2" "langgraph-checkpoint==4.1.0" "langgraph-checkpoint-sqlite==3.1.0" "websockets==17.0"
+      - run: python -m pip check
       - run: python -m ruff check src tests examples integrations
       - run: python -m pytest -q
       - run: python examples/demo.py --profile "$RUNNER_TEMP/demo"
-      - if: matrix.python == '3.14' && matrix.deps == 'latest'
+      - if: matrix.python == '3.14'
         run: LGW_PACKAGING=1 python -m pytest -q tests/integration/test_packaging.py
+
+  latest:
+    # Newest versions allowed by pyproject.toml. Not what Locus ships; it tells
+    # you whether bumping constraints.txt (and Locus's lock) would be safe.
+    name: newest allowed LangGraph / ubuntu / 3.14
+    runs-on: ubuntu-24.04
+    env:
+      LANGSMITH_TRACING: "false"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m pip list | grep -i langgraph
+      - run: python -m pytest -q

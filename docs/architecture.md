@@ -136,6 +136,16 @@ lock as constraints selects 1.2.2 without moving any Locus pin. The package
 does not use `langgraph-sdk` (remote client) at all. When a later sdk lifts
 the cap, the Locus-side pin can move without a package change.
 
+Development and CI install `constraints.txt`, which pins exactly that
+resolution (`langgraph 1.2.2`, `langgraph-checkpoint 4.2.0`,
+`langgraph-checkpoint-sqlite 3.1.1`, `langgraph-sdk 0.3.15`), so code cannot
+come to rely on a newer LangGraph API than Locus ships. The `latest` CI job
+installs without constraints to show when a bump would be safe; bump
+`constraints.txt` together with Locus's lock. None of the changes in
+1.2.3–1.2.12 affect this package: they concern `DeltaChannel`, subgraphs,
+v3/remote streaming, async cancellation, config callbacks/tags, per-node
+trace policy and `interrupt(response_schema=...)`, none of which it uses.
+
 `langgraph-checkpoint-sqlite` brings `sqlite-vec` (a loadable SQLite
 extension shipped as a native library) even though only the checkpointer is
 used; it must be signed like other bundled binaries. Official APIs used:

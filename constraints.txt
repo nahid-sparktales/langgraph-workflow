@@ -1,0 +1,12 @@
+# Development and CI install the LangGraph stack exactly as Locus's
+# hash-locked runtime resolves it: Locus pins websockets==17.0, and every
+# langgraph>=1.2.3 needs langgraph-sdk 0.4.x, which requires websockets<17.
+# Keeping dev on these versions means nothing newer than Locus can use slips in.
+#
+#   pip install -e '.[dev]' -c constraints.txt
+#
+# Upgrade these together with Locus's requirements-runtime.lock.
+langgraph==1.2.2
+langgraph-checkpoint==4.2.0
+langgraph-checkpoint-sqlite==3.1.1
+langgraph-sdk==0.3.15

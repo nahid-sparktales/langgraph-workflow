@@ -28,7 +28,7 @@ ends honestly (`needs_review`, `uncertain`, `budget_exhausted`, …).
 ## Try it offline
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
+python3 -m venv .venv && .venv/bin/pip install -e '.[dev]' -c constraints.txt
 .venv/bin/python examples/demo.py          # interrupts, restarts, a crash mid-checkpoint
 .venv/bin/python -m pytest -q              # Locus and packaging suites are opt-in
 .venv/bin/python examples/evaluate.py      # fixture orchestration overhead -> JSON
@@ -53,6 +53,11 @@ restarts are real. They never touch a network, account, or Locus profile.
 
 Python ≥ 3.10 (tested: 3.10, 3.12, 3.14). `langgraph>=1.2.2,<1.3`,
 `langgraph-checkpoint>=4.1,<5`, `langgraph-checkpoint-sqlite>=3.1,<3.2`.
+
+Development and CI install `constraints.txt`, which pins the LangGraph stack
+to what Locus's runtime resolves (`langgraph 1.2.2`; Locus's
+`websockets==17.0` rules out newer releases). A separate CI job tests the
+newest allowed versions so you can see when upgrading becomes safe.
 
 ## License
 
