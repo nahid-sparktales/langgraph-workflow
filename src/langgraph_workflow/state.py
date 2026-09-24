@@ -152,7 +152,7 @@ def bounded(node):
 
 
 def spec(state: dict, kind: str, access: str, key: str, instruction: str,
-         inputs: dict | None = None, parent: str = "") -> JobSpec:
+         inputs: dict | None = None, parent: str = "", assignee: str = "") -> JobSpec:
     request = state["request"]
     return JobSpec(
         operation_id=f"{request['attempt_id']}/{key}",
@@ -165,6 +165,7 @@ def spec(state: dict, kind: str, access: str, key: str, instruction: str,
         parent_id=parent,
         route_ref=request.get("route_ref", ""),
         checkout_ref=request.get("checkout_ref", ""),
+        assignee=assignee,
     )
 
 

@@ -228,6 +228,27 @@ def plugin(source: str) -> dict:
             decided = call("workflow_decide", attempt_id=waiting["attempt_id"],
                            decision_id=decision["decision_id"], revision=decision["revision"],
                            digest=decision["digest"], choice="approve")
+            # A drawn workflow started from the window: its first step belongs to
+            # a saved agent and is handed over, never shown to other chats.
+            nova = "8f0e7c1e-0000-4000-8000-000000000001"
+            drawn = {"id": "two-agents", "title": "Two agents", "agent": nova, "agent_name": "Nova",
+                     "nodes": [{"id": "start", "type": "start"},
+                               {"id": "plan", "type": "task", "title": "Plan the change",
+                                "access": "read", "instruction": "Plan it"},
+                               {"id": "end", "type": "end"}],
+                     "edges": [{"from": "start", "to": "plan"}, {"from": "plan", "to": "end"}]}
+            saved = call("workflow_save_definition", definition=drawn)
+            launched = call("workflow_launch", workflow="custom", goal="Plan a change",
+                            definition_id="two-agents")
+            job = launched["jobs"][0]
+            handed = call("workflow_dispatch", attempt_id=launched["attempt_id"],
+                          operation_id=job["operation_id"])
+            stolen = runtime.call_tool(server_id, "workflow_report", {
+                "attempt_id": launched["attempt_id"], "operation_id": job["operation_id"],
+                "outcome": "completed", "result": {"summary": "not mine"}})
+            window |= {"saved_definition": saved.get("saved", {}).get("id"),
+                       "launched": [launched["status"], job["agent_name"]],
+                       "handoff_text": handed.get("text", ""), "stolen": stolen[:200]}
             window |= {"overview_settings": call("workflow_overview")["settings"],
                        "run_reviewer": detail["reviewer"],
                        "decided": (decided.get("status"),

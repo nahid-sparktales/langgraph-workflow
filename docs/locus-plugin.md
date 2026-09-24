@@ -43,15 +43,20 @@ you ◀── plan approval / conflict choice (Locus prompt via MCP elicitation)
 | `workflow_cancel` | Cancel; pending jobs are closed. |
 | `workflow_overview` | Recent runs across projects and the settings in effect. Read-only; used by the window. |
 | `workflow_run` | One run for display: steps, plan, pending decision and jobs, checks, activity. Read-only. |
+| `workflow_definitions` | Workflows drawn in the window. Read-only. |
+| `workflow_definition` | One drawn workflow. Read-only. |
 | `workflow_decide` | Answer a pending decision. Window only (see below). |
+| `workflow_save_definition`, `workflow_delete_definition` | Save or delete a drawn workflow. Window only. |
+| `workflow_launch` | Start a run from the window; decisions wait in the window. Window only. |
+| `workflow_dispatch` | The message that hands one assigned step to its agent. Window only. |
 
 The agent has no tool to answer a decision: plan approval and conflict
 resolution are asked through Locus's own input prompt
 (`mcp_input_required`), so the model cannot approve on your behalf.
-`workflow_decide` is registered only when Locus starts the server with
-`LOCUS_PANEL_TOOLS=workflow_decide`, which a panel-aware Locus sets after
-removing that tool from every agent's tool list; the window is then the only
-caller.
+The window-only tools are registered only when Locus starts the server with
+their names in `LOCUS_PANEL_TOOLS`, which a panel-aware Locus sets after
+removing those tools from every agent's tool list; the window is then the
+only caller.
 
 ## The workflows window
 
@@ -72,6 +77,20 @@ window in `.codex-plugin/plugin.json` under `locus.panels`. Open it from
   describe the goal, add checks or questions, and preview exactly what the
   agent will receive. *Draft in chat* opens a new Locus chat with it
   drafted; nothing runs until you press Send.
+- **Workflows**: draw your own. Add steps from the palette (agent step,
+  approval, checks, split, join, end), drag from an outcome to the next step,
+  and edit the selected step on the right: what the agent should do, whether
+  it may edit files, the outcomes it chooses between, how many times a loop
+  may run it, and which saved agent does it. Each agent draws its own line
+  color, and the legend shows its provider and model. Start from a template
+  (plan–approve–build–check, research in parallel, build with a reviewer).
+  Saving validates the graph and explains what to fix.
+- **Starting a drawn workflow**: in *New run*, pick it, describe the goal and
+  add "Done when" checks, then **Start run**. Locus asks once, in its own
+  dialog, whether the plugin may hand this run's steps to the listed agents.
+  After that each step goes to its agent's own chat in the project, on that
+  agent's model and plan, while the window is open. Steps without an agent
+  are done by whichever chat continues the run.
 - **Settings**: approvals, the default review step, limits and how long
   finished runs are kept. Locus validates them against
   `plugin/settings.schema.json` and stores them in the plugin's data folder
@@ -80,8 +99,14 @@ window in `.codex-plugin/plugin.json` under `locus.panels`. Open it from
 
 The window is local HTML (`plugin/ui/`) in Locus's plugin web view: no
 network, no storage, `script-src 'self'`. It can only read and save this
-plugin's settings, call this plugin's tools, and draft a chat, each gated by
-a capability the trust review lists.
+plugin's settings, call this plugin's tools, draft a chat, list saved agents
+(name, role, provider and model; never instructions, accounts or keys), and
+hand steps to agents a run was allowed to use, each gated by a capability the
+trust review lists. Locus frames every handed-over message with the plugin's
+name and the run, uses the agent's own chat and permissions, and keeps the
+per-run permission only while the window is open. Released Locus has no
+window: there, a drawn workflow's assigned steps wait until the window is
+available, and unassigned steps work as before.
 
 To work on the UI without Locus, serve the repository and open
 `tools/panel-preview/index.html`, which fakes the Locus bridge with sample

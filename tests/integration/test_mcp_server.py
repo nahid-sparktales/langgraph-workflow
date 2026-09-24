@@ -184,3 +184,70 @@ def test_plan_approval_can_be_turned_off(tmp_path):
     (tools, out), asked = run(workspace, data, script, [])
     assert "workflow_decide" not in tools
     assert asked == [] and out["jobs"][0]["kind"] == "write"
+
+
+DRAWN = {
+    "id": "plan-build", "title": "Plan, then build", "agent": "", "nodes": [
+        {"id": "start", "type": "start", "x": 0, "y": 0},
+        {"id": "plan", "type": "task", "title": "Plan", "access": "read",
+         "instruction": "Plan the change", "agent": "nova-uuid", "agent_name": "Nova"},
+        {"id": "ok", "type": "approval", "title": "Approve the plan"},
+        {"id": "build", "type": "task", "title": "Build", "access": "write",
+         "instruction": "Make the change"},
+        {"id": "check", "type": "check"}, {"id": "end", "type": "end"}],
+    "edges": [{"from": "start", "to": "plan"}, {"from": "plan", "to": "ok"},
+              {"from": "ok", "on": "approved", "to": "build"}, {"from": "build", "to": "check"},
+              {"from": "check", "on": "passed", "to": "end"}]}
+PANEL = {"LOCUS_PANEL_TOOLS": "workflow_decide,workflow_save_definition,"
+                              "workflow_delete_definition,workflow_launch,workflow_dispatch"}
+
+
+def test_drawn_workflow_from_the_window_with_a_hand_off(tmp_path):
+    workspace, data = tmp_path / "ws", tmp_path / "data"
+    workspace.mkdir()
+
+    async def window(call):
+        broken = await call("workflow_save_definition",
+                            definition={**DRAWN, "edges": DRAWN["edges"][1:]})
+        saved = await call("workflow_save_definition", definition=DRAWN)
+        listed = await call("workflow_definitions")
+        started = await call("workflow_launch", workflow="custom", goal="Make result.txt say done",
+                         checks=[CHECK], definition_id="plan-build")
+        handoff = await call("workflow_dispatch", attempt_id=started["attempt_id"],
+                             operation_id=started["jobs"][0]["operation_id"])
+        return broken, saved, listed, started, handoff
+
+    (tools, (broken, saved, listed, started, handoff)), asked = run(
+        workspace, data, window, [], PANEL)
+    assert "workflow_launch" in tools and "workflow_dispatch" in tools
+    assert "connect the 'next'" in broken["problems"][0]
+    assert saved["saved"]["id"] == "plan-build"
+    assert listed["definitions"][0] | {"updated_at": 0} == {
+        "id": "plan-build", "title": "Plan, then build", "description": "", "steps": 4,
+        "agents": ["Nova"], "updated_at": 0}
+    assert started["title"] == "Plan, then build" and asked == []  # nothing prompted in a chat
+    assert [s["state"] for s in started["steps"]][:2] == ["current", "upcoming"]
+    assert started["graph"]["nodes"][1]["agent_name"] == "Nova"
+    [job] = started["jobs"]
+    assert (job["agent"], job["agent_name"], job["title"]) == ("nova-uuid", "Nova", "Plan")
+    assert handoff["agent"] == "nova-uuid" and "Plan the change" in handoff["text"]
+    claim = json.loads(handoff["text"].split("workflow_report tool with:\n", 1)[1]
+                       .rsplit("\nReport only", 1)[0])["claim"]
+
+    async def agents(call):  # Nova's chat, then any chat: neither sees the other's step
+        status = await call("workflow_status", attempt_id=started["attempt_id"])
+        stolen = await call("workflow_report", attempt_id=started["attempt_id"],
+                            operation_id=job["operation_id"], outcome="completed",
+                            result={"summary": "x"})
+        done = await call("workflow_report", attempt_id=started["attempt_id"],
+                          operation_id=job["operation_id"], outcome="completed",
+                          result={"summary": "Write result.txt"}, claim=claim)
+        return status, stolen, done
+
+    (tools, (status, stolen, done)), asked = run(workspace, data, agents, ["approve"])
+    assert status["jobs"] == [] and status["handoffs"][0]["agent"] == "Nova"
+    assert "belongs to Nova" in status["next_step"]
+    assert "another agent" in stolen["error"]
+    assert asked[0].startswith("Your approval is needed")
+    assert done["jobs"][0]["inputs"]["title"] == "Build"  # unassigned: any chat does it
+    assert "workflow_launch" not in tools and "workflow_dispatch" not in tools

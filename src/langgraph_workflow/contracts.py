@@ -18,8 +18,8 @@ from typing import Any
 CONTRACT_VERSION = "1"
 STATE_SCHEMA_VERSION = 1
 
-WORKFLOWS = ("verified_change", "research")
-JOB_KINDS = ("inspect", "plan", "write", "review", "investigate", "synthesize")
+WORKFLOWS = ("verified_change", "research", "custom")
+JOB_KINDS = ("inspect", "plan", "write", "review", "investigate", "synthesize", "task")
 RECEIPT_STATUSES = (
     "settled",  # host durably recorded a completed outcome
     "failed",  # executed and failed; outcome is known
@@ -143,6 +143,7 @@ class WorkflowRequest(_Record):
     investigations: tuple = ()
     reviewer: bool = False
     limits: dict = field(default_factory=dict)
+    definition: dict | None = None  # a user-drawn graph, pinned for the attempt
 
     @classmethod
     def from_dict(cls, value: Any) -> WorkflowRequest:
@@ -166,8 +167,16 @@ class WorkflowRequest(_Record):
         reviewer = v.get("reviewer", False)
         if not isinstance(reviewer, bool):
             raise ContractError("reviewer must be a boolean")
+        workflow = _choice(v.get("workflow"), WORKFLOWS, "workflow")
+        definition = v.get("definition")
+        if (workflow == "custom") != (definition is not None):
+            raise ContractError("a definition is required for custom workflows and only for them")
+        if definition is not None:
+            from .definitions import validate_definition
+
+            definition = validate_definition(definition)
         return cls(
-            workflow=_choice(v.get("workflow"), WORKFLOWS, "workflow"),
+            workflow=workflow,
             run_id=identifier(v.get("run_id"), "run_id"),
             task_id=identifier(v.get("task_id"), "task_id"),
             attempt_id=identifier(v.get("attempt_id"), "attempt_id"),
@@ -180,7 +189,14 @@ class WorkflowRequest(_Record):
             investigations=_strings(v.get("investigations", ()), "investigations", limit=16),
             reviewer=reviewer,
             limits=limits,
+            definition=definition,
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        value = super().to_dict()
+        if value["definition"] is None:  # keeps fingerprints of older attempts stable
+            del value["definition"]
+        return value
 
     @property
     def fingerprint(self) -> str:
@@ -248,9 +264,12 @@ class JobSpec(_Record):
     parent_id: str = ""
     route_ref: str = ""
     checkout_ref: str = ""
+    assignee: str = ""  # host agent that must do this job; "" means any
 
     def __post_init__(self) -> None:
         identifier(self.operation_id, "operation_id")
+        if self.assignee:
+            identifier(self.assignee, "assignee")
         _choice(self.kind, JOB_KINDS, "job kind")
         _choice(self.access, ("read", "write"), "job access")
         text(self.instruction, "instruction")
@@ -406,3 +425,4 @@ class AttemptStatus(_Record):
     usage: dict = field(default_factory=dict)
     goal: str = ""
     updated_at: float = 0.0
+    title: str = ""  # the drawn workflow's title, for custom attempts

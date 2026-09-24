@@ -7,6 +7,7 @@ const POLL_MS = 4000;
 const state = {
   tab: "runs", runs: [], selected: null, detail: null, settings: null,
   settingsDraft: null, capabilities: [], project: "", confirmCancel: false,
+  agents: [], confirmed: new Set(), dispatched: new Map(), handing: new Set(),
 };
 
 // ---- bridge --------------------------------------------------------------
@@ -49,6 +50,10 @@ const bridge = (() => {
     settings: () => request("getSettings", {}),
     saveSettings: (values, revision) => request("saveSettings", { values, revision }),
     compose: (text) => post({ type: "composeChat", text }),
+    agents: () => request("listAgents", {}),
+    confirmRun: (fields) => request("confirmRun", fields),
+    dispatch: (fields) => request("dispatchJob", fields),
+    openChat: (runID, agentID) => post({ type: "openAgentChat", runID, agentID }),
     async tool(tool, args) {
       const result = await request("callTool", { tool, arguments: args || {} });
       const text = String((result && result.content) || "");
@@ -88,7 +93,9 @@ function toast(text, bad) {
 }
 
 // ---- plain language --------------------------------------------------------
-const LINE = { verified_change: "Change", research: "Research" };
+const LINE = { verified_change: "Change", research: "Research", custom: "Custom" };
+const lineClass = (run) => run.workflow === "research" ? "research" : run.workflow === "custom" ? "custom" : "change";
+const runName = (run) => run.workflow === "custom" && run.title ? run.title : LINE[run.workflow] || run.workflow;
 const TERMINAL = ["verified", "needs_review", "denied", "cancelled", "failed", "blocked"];
 
 const BLOCKERS = {
@@ -118,17 +125,29 @@ const BLOCKERS = {
   workspace_busy: "Another run is changing this project right now.",
   missing_capability: "This Locus can't run this workflow yet.",
   cancelled: "The run was cancelled.",
+  loop_limit: "A step ran as many times as it's allowed (see “Times it may run” in the workflow).",
+  declined: "You declined. Nothing after that step ran.",
+  step_failed: "A step failed.",
+  checks_failed: "The checks failed.",
+  checks_need_review: "A check needs your review.",
+  invalid_choice: "An agent didn't pick one of the step's outcomes.",
+  no_checks_run: "No checks ran, so the result can't be verified automatically.",
+  changed_after_checks: "Files changed after the checks passed.",
+  branch_failed: "One of the parallel steps failed.",
 };
 
 function headline(run) {
   const decision = run.decision || null;
   switch (run.status) {
     case "waiting_for_input":
-      return decision && decision.kind === "conflict_resolution"
-        ? ["you", "Waiting for your choice", "The investigations disagree. Pick how to resolve it below."]
-        : ["you", "Waiting for your approval", "Review the plan below. Nothing changes until you approve."];
-    case "waiting_for_job":
+      if (decision && decision.kind === "conflict_resolution") return ["you", "Waiting for your choice", "The investigations disagree. Pick how to resolve it below."];
+      if (decision && decision.kind === "approval") return ["you", "Waiting for your approval", "Look at it below. Nothing after this step runs until you approve."];
+      return ["you", "Waiting for your approval", "Review the plan below. Nothing changes until you approve."];
+    case "waiting_for_job": {
+      const names = [...new Set((run.jobs || run.handoffs || []).map((job) => job.agent_name).filter(Boolean))];
+      if (names.length) return ["work", `${names.join(" and ")} ${names.length > 1 ? "have" : "has"} the next step`, "It runs in that agent's own chat, on its own model, with your usual Locus permissions."];
       return ["work", "The agent has the next step", "It happens in chat, with your usual Locus permissions."];
+    }
     case "running": return ["work", "Running", ""];
     case "paused": return ["work", "Paused", "Continue it from chat when you're ready."];
     case "uncertain": return ["stop", "Needs a check", BLOCKERS.uncertain_action];
@@ -176,6 +195,7 @@ async function refreshRuns() {
   try {
     const overview = await bridge.tool("workflow_overview", {});
     state.runs = overview.runs || [];
+    autoHandOff();
     if (!state.settings && overview.settings) state.defaults = overview.settings;
     renderList();
     if (state.selected) await loadDetail(state.selected, true);
@@ -205,14 +225,14 @@ function renderList(error) {
     for (const run of runs) {
       const [tone] = headline(run);
       nodes.push(h("button", {
-        type: "button", class: "run-item " + (run.workflow === "research" ? "research" : "change"),
+        type: "button", class: "run-item " + lineClass(run),
         "aria-current": run.attempt_id === state.selected ? "true" : false,
         onclick: () => select(run.attempt_id),
       },
         h("span", { class: "rail", "aria-hidden": "true" }),
         h("span", { class: "goal" }, firstLine(run.goal)),
         h("span", { class: "state" }, h("span", { class: "dot-state " + tone, title: headline(run)[1] })),
-        h("span", { class: "meta" }, `${LINE[run.workflow] || run.workflow} · ${run.project} · ${ago(run.updated_at)}`),
+        h("span", { class: "meta" }, `${runName(run)} · ${run.project} · ${ago(run.updated_at)}`),
       ));
     }
   }
@@ -253,7 +273,7 @@ function renderDetail() {
   const research = run.workflow === "research";
   const [tone, title, text] = headline(run);
   const children = [
-    h("span", { class: "line-tag" + (research ? " research" : "") }, (LINE[run.workflow] || run.workflow) + " line"),
+    h("span", { class: "line-tag " + lineClass(run) }, run.workflow === "custom" ? runName(run) : runName(run) + " line"),
     h("h2", { class: "goal" }, firstLine(run.goal)),
     h("div", { class: "meta-line" },
       h("span", {}, run.project), h("span", {}, "Updated " + ago(run.updated_at)),
@@ -263,14 +283,19 @@ function renderDetail() {
       h("div", {}, h("strong", {}, title), text && h("p", {}, text))),
   ];
   if (run.decision) children.push(decisionCard(run));
-  if (run.jobs && run.jobs.length) children.push(jobsCard(run));
+  if (run.jobs && run.jobs.length) children.push(...jobsCard(run));
   const lower = [];
   if (run.checks && run.checks.length) lower.push(checksCard(run));
-  else if (!research) lower.push(h("section", { class: "card" }, h("h3", {}, "Done when"),
+  else if (!research && run.workflow !== "custom") lower.push(h("section", { class: "card" }, h("h3", {}, "Done when"),
     h("p", {}, "No checks were declared for this run, so it will end in review.")));
   if (research && run.investigations && run.investigations.length) {
     lower.push(h("section", { class: "card" }, h("h3", {}, "Questions"),
       h("ol", {}, run.investigations.map((q) => h("li", {}, q)))));
+  }
+  if (run.outputs && run.outputs.length) {
+    lower.push(h("section", { class: "card" }, h("h3", {}, "Results so far"),
+      h("ol", { class: "results" }, run.outputs.map((out) => h("li", {},
+        h("strong", {}, out.title), out.summary ? h("p", {}, out.summary.slice(0, 600)) : null)))));
   }
   if (run.plan && run.plan.length && !run.decision) {
     lower.push(h("section", { class: "card" }, h("h3", {}, "Plan"), h("ol", {}, run.plan.map((step) => h("li", {}, step)))));
@@ -278,16 +303,16 @@ function renderDetail() {
   lower.push(activityCard(run));
   children.push(h("div", { class: "split" }, lower));
   if (!TERMINAL.includes(run.status)) children.push(cancelRow(run));
-  root.className = "detail" + (research ? " research" : "");
+  root.className = "detail " + lineClass(run);
   root.replaceChildren(...children);
 }
 
 function route(run) {
   const steps = run.steps || [];
   const youSteps = new Set(["approve", "compare"]);
-  return h("ol", { class: "route" + (run.workflow === "research" ? " research" : ""), "aria-label": "Progress" },
+  return h("ol", { class: "route " + lineClass(run), "aria-label": "Progress" },
     steps.map((step, index) => h("li", {
-      class: [step.state, youSteps.has(step.id) ? "you" : ""].join(" "),
+      class: [step.state, youSteps.has(step.id) || step.type === "approval" ? "you" : ""].join(" "),
       "aria-current": step.state === "current" ? "step" : false,
     },
       h("span", { class: "stop-mark", "aria-hidden": "true" }),
@@ -309,6 +334,14 @@ function decisionCard(run) {
       h("div", { class: "row" },
         h("button", { type: "button", class: "primary you-btn", disabled: !canDecide, onclick: () => decide(run, "approve", "Plan approved") }, "Approve plan"),
         h("button", { type: "button", class: "secondary", disabled: !canDecide, onclick: () => decide(run, "deny", "Plan declined") }, "Decline")));
+  }
+  if (decision.kind === "approval") {
+    return h("section", { class: "card you", "aria-label": "Approval" },
+      h("h3", {}, "Your approval is needed"),
+      h("p", { class: "pre" }, decision.summary || ""),
+      h("div", { class: "row" },
+        h("button", { type: "button", class: "primary you-btn", disabled: !canDecide, onclick: () => decide(run, "approve", "Approved") }, "Approve"),
+        h("button", { type: "button", class: "secondary", disabled: !canDecide, onclick: () => decide(run, "decline", "Declined") }, "Decline")));
   }
   const questions = run.investigations || [];
   return h("section", { class: "card you", "aria-label": "Resolve conflict" },
@@ -344,11 +377,45 @@ async function decide(run, choice, done) {
 }
 
 function jobsCard(run) {
+  const assigned = run.jobs.filter((job) => job.agent);
+  const open = run.jobs.filter((job) => !job.agent);
+  const cards = [];
+  if (assigned.length) cards.push(handOffCard(run, assigned));
+  if (open.length) cards.push(openJobsCard(run, open));
+  return cards;
+}
+
+function handOffCard(run, jobs) {
+  const confirmed = state.confirmed.has(run.attempt_id);
+  const allow = can("agents.dispatch");
+  return h("section", { class: "card" },
+    h("h3", {}, "Handed to agents"),
+    h("p", {}, allow
+      ? confirmed ? "Each step goes to its agent's own chat automatically while this window is open."
+        : "Allow hand-offs for this run and each step goes to its agent's chat automatically."
+      : "This Locus can't hand steps to agents from plugins. Ask each agent in its own chat."),
+    jobs.map((job) => {
+      const sent = state.dispatched.get(job.operation_id);
+      return h("div", { class: "job" },
+        h("span", { class: "agent-tag line-" + agentLine(job.agent) }, job.agent_name || "Agent"),
+        h("span", { class: "kind" }, " " + (job.title || JOB_KIND[job.kind] || job.kind)),
+        job.access === "read" ? h("span", { class: "subtle" }, " · read-only") : null,
+        h("p", {}, job.instruction),
+        h("div", { class: "row" },
+          h("span", { class: "subtle" }, sent ? (sent.earlier ? "Handed over earlier" : "Handed over " + ago(sent.at / 1000)) : state.handing.has(job.operation_id) ? "Handing over…" : "Not handed over yet"),
+          sent && can("agents.dispatch") ? h("button", { type: "button", class: "quiet", onclick: () => bridge.openChat(run.attempt_id, job.agent) }, "Open chat") : null,
+          sent && confirmed ? h("button", { type: "button", class: "quiet", onclick: () => handOff(run.attempt_id, job, true) }, "Hand off again") : null));
+    }),
+    allow && !confirmed ? h("div", { class: "row" },
+      h("button", { type: "button", class: "primary", onclick: () => allowHandOffs(run.attempt_id, jobs) }, "Allow hand-offs for this run")) : null);
+}
+
+function openJobsCard(run, jobs) {
   return h("section", { class: "card" },
     h("h3", {}, "Next for the agent"),
     h("p", {}, "The agent does these steps in chat. If that chat has moved on, continue from a new one."),
-    run.jobs.map((job) => h("div", { class: "job" },
-      h("span", { class: "kind" }, JOB_KIND[job.kind] || job.kind),
+    jobs.map((job) => h("div", { class: "job" },
+      h("span", { class: "kind" }, job.title || JOB_KIND[job.kind] || job.kind),
       job.access === "read" ? h("span", { class: "subtle" }, " · read-only") : null,
       h("p", {}, job.instruction))),
     can("chat.compose") && h("div", { class: "row" },
@@ -410,6 +477,72 @@ function cancelRow(run) {
     h("button", { type: "button", class: "secondary", onclick: () => { state.confirmCancel = false; renderDetail(); } }, "Keep running"));
 }
 
+// ---- hand-offs -----------------------------------------------------------------
+function agentLine(agentID) {
+  const index = state.agents.findIndex((agent) => agent.id === agentID);
+  return index < 0 ? "x" : String(index % 6);
+}
+
+async function allowHandOffs(runID, jobs, title) {
+  if (!can("agents.dispatch")) return false;
+  let steps = jobs;
+  let name = title;
+  try {
+    const detail = await bridge.tool("workflow_run", { attempt_id: runID });
+    name = name || detail.title || detail.goal;
+    const graph = detail.graph;
+    if (graph) {
+      steps = graph.nodes.filter((node) => node.type === "task" && (node.agent || graph.agent))
+        .map((node) => ({ title: node.title, agentID: node.agent || graph.agent, access: node.access }));
+    }
+  } catch (_) { /* fall back to the pending jobs */ }
+  steps = steps.map((step) => ({ title: step.title, agentID: step.agentID || step.agent, access: step.access }));
+  try {
+    const answer = await bridge.confirmRun({ runID, title: String(name || "Workflow run").slice(0, 200), steps });
+    if (!answer || !answer.confirmed) { toast("Hand-offs not allowed. Steps wait until you allow them."); return false; }
+    state.confirmed.add(runID);
+    toast("Hand-offs allowed for this run");
+    autoHandOff();
+    if (state.selected === runID) loadDetail(runID, true);
+    return true;
+  } catch (error) {
+    toast(error.message, true);
+    return false;
+  }
+}
+
+function autoHandOff() {
+  if (!can("agents.dispatch")) return;
+  for (const run of state.runs) {
+    if (!state.confirmed.has(run.attempt_id)) continue;
+    for (const job of run.handoffs || []) {
+      if (!state.dispatched.has(job.operation_id) && !state.handing.has(job.operation_id)) handOff(run.attempt_id, job, false);
+    }
+  }
+}
+
+async function handOff(runID, job, again) {
+  state.handing.add(job.operation_id);
+  try {
+    const message = await bridge.tool("workflow_dispatch", { attempt_id: runID, operation_id: job.operation_id });
+    if (message.handed_before && !again && !state.dispatched.has(job.operation_id)) {
+      // Sent before this window (or Locus) restarted: never send twice on its own.
+      state.dispatched.set(job.operation_id, { at: Date.now(), earlier: true });
+      return;
+    }
+    await bridge.dispatch({ runID, agentID: message.agent, operationID: job.operation_id,
+      title: message.title, text: message.text, access: message.access });
+    state.dispatched.set(job.operation_id, { at: Date.now(), earlier: false });
+    toast(`Handed to ${message.agent_name || "the agent"}: ${message.title}`);
+  } catch (error) {
+    if (/not_confirmed/.test(error.message)) state.confirmed.delete(runID);
+    else if (!/busy/.test(error.message)) toast(error.message, true);
+  } finally {
+    state.handing.delete(job.operation_id);
+    if (state.selected === runID) loadDetail(runID, true);
+  }
+}
+
 // ---- new workflow ------------------------------------------------------------
 const CHECK_KINDS = [
   ["file_exists", "A file exists"],
@@ -468,26 +601,31 @@ function composeRequest() {
   const goal = $("goal").value.trim();
   const args = { workflow, goal };
   const checks = [];
-  if (workflow === "verified_change") {
+  if (workflow === "custom") args.definition_id = $("definition").value;
+  if (workflow !== "research") {
     [...$("checks").children].forEach((row, index) => {
       const check = row.read && row.read();
       if (check) checks.push(Object.assign({ id: "check-" + (index + 1) }, check));
     });
+  }
+  if (workflow === "verified_change") {
     const plan = $("plan").value.split("\n").map((line) => line.trim()).filter(Boolean);
     if (plan.length) args.plan_steps = plan;
     args.reviewer = $("reviewer").checked;
-  } else {
+  } else if (workflow === "research") {
     const questions = [...$("questions").children].map((row) => row.read()).filter(Boolean);
     if (questions.length) args.investigations = questions;
     const deliverable = $("deliverable").value.trim();
     if (deliverable) checks.push({ id: "deliverable", kind: "file_exists", path: deliverable, requirement: `The answer is saved in ${deliverable}` });
   }
   if (checks.length) args.checks = checks;
+  const drawn = workflow === "custom" && $("definition").selectedOptions[0];
   const intro = workflow === "verified_change"
     ? "Use the LangGraph Workflows plugin to run a verified change."
-    : "Use the LangGraph Workflows plugin to research this question.";
+    : workflow === "research" ? "Use the LangGraph Workflows plugin to research this question."
+      : `Use the LangGraph Workflows plugin to run my workflow “${drawn ? drawn.textContent : ""}”.`;
   return {
-    goal, text: `${intro}\n\nGoal: ${goal || "…"}\n\nCall workflow_start with these arguments, then do each job it returns and report it with workflow_report:\n${JSON.stringify(args, null, 2)}`,
+    goal, args, text: `${intro}\n\nGoal: ${goal || "…"}\n\nCall workflow_start with these arguments, then do each job it returns and report it with workflow_report:\n${JSON.stringify(args, null, 2)}`,
   };
 }
 
@@ -496,12 +634,21 @@ function updatePreview() {
 }
 
 function syncComposeMode() {
-  const change = document.querySelector('input[name="workflow"]:checked').value === "verified_change";
-  document.querySelectorAll(".only-change").forEach((node) => { node.hidden = !change; });
-  document.querySelectorAll(".only-research").forEach((node) => { node.hidden = change; });
-  $("goal").placeholder = change
-    ? "Add a dark mode toggle to the settings page"
-    : "Which storage engine fits our offline cache best?";
+  const mode = document.querySelector('input[name="workflow"]:checked').value;
+  const only = { verified_change: "only-change", research: "only-research", custom: "only-custom" }[mode];
+  document.querySelectorAll(".only-change, .only-research, .only-custom").forEach((node) => {
+    node.hidden = !node.classList.contains(only);
+  });
+  const custom = mode === "custom";
+  $("draft").className = custom ? "secondary" : "primary";
+  $("start-here").hidden = !custom || !can("plugin.tools");
+  $("actions-hint").textContent = custom
+    ? "Start run begins it here; steps with an agent go to that agent's chat once you allow it. Draft in chat lets an agent start it instead."
+    : "Opens a new Locus chat with this request drafted. Review it, then press Send.";
+  $("goal").placeholder = mode === "research"
+    ? "Which storage engine fits our offline cache best?"
+    : "Add a dark mode toggle to the settings page";
+  if (custom) describeDefinition();
   const limit = (state.settings && state.settings.values.max_investigations) || (state.defaults && state.defaults.max_investigations) || 4;
   $("add-question").disabled = $("questions").children.length >= limit;
   updatePreview();
@@ -515,6 +662,8 @@ function initCompose() {
   $("add-check").addEventListener("click", () => { $("checks").append(checkRow()); updatePreview(); });
   $("add-question").addEventListener("click", () => { $("questions").append(questionRow()); syncComposeMode(); });
   $("checks").append(checkRow({ kind: "file_contains" }));
+  $("definition").addEventListener("change", () => { describeDefinition(); updatePreview(); });
+  $("start-here").addEventListener("click", startHere);
   $("compose").addEventListener("submit", (event) => {
     event.preventDefault();
     const { goal, text } = composeRequest();
@@ -524,6 +673,54 @@ function initCompose() {
     toast("Drafted in a new chat. Review it and press Send.");
   });
   syncComposeMode();
+}
+
+function syncCustomChoices() {
+  const list = typeof editor === "object" ? editor.list : [];
+  const select = $("definition");
+  const keep = select.value;
+  select.replaceChildren(...list.map((item) => h("option", { value: item.id, selected: item.id === keep }, item.title)));
+  $("custom-card").hidden = !list.length;
+  if (!list.length && document.querySelector('input[name="workflow"]:checked').value === "custom") {
+    document.querySelector('input[value="verified_change"]').checked = true;
+  }
+  syncComposeMode();
+}
+
+function describeDefinition() {
+  const item = (typeof editor === "object" ? editor.list : []).find((d) => d.id === $("definition").value);
+  $("definition-agents").textContent = item
+    ? `${item.steps} steps${item.agents.length ? " · agents: " + item.agents.join(", ") : " · done by whichever agent runs it"}${item.description ? " — " + item.description : ""}`
+    : "";
+}
+
+function startWith(definitionID) {
+  document.querySelector('input[value="custom"]').checked = true;
+  syncCustomChoices();
+  $("definition").value = definitionID;
+  showTab("new");
+  syncComposeMode();
+  $("goal").focus();
+}
+
+async function startHere() {
+  const { goal, args } = composeRequest();
+  if (!goal) { $("goal-error").hidden = false; $("goal").focus(); return; }
+  const button = $("start-here");
+  button.disabled = true;
+  try {
+    const run = await bridge.tool("workflow_launch", args);
+    toast("Run started");
+    state.selected = run.attempt_id;
+    state.detail = run;
+    showTab("runs");
+    const assigned = (run.graph ? run.graph.nodes : []).some((node) => node.type === "task" && (node.agent || run.graph.agent));
+    if (assigned && can("agents.dispatch")) await allowHandOffs(run.attempt_id, run.jobs || [], run.title);
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 // ---- settings ----------------------------------------------------------------
@@ -642,7 +839,7 @@ function initSettings() {
 }
 
 // ---- tabs and lifecycle --------------------------------------------------------
-const TABS = ["runs", "new", "settings"];
+const TABS = ["runs", "new", "workflows", "settings"];
 
 function showTab(name) {
   state.tab = name;
@@ -654,6 +851,10 @@ function showTab(name) {
     $("view-" + tab).hidden = !selected;
   }
   if (name === "runs") refreshRuns();
+  if (name === "workflows" && typeof loadDefinitions === "function") {
+    if (!editor.loaded) loadDefinitions();
+    else requestAnimationFrame(() => drawEdges());  // measured only once visible
+  }
 }
 
 function initTabs() {
@@ -675,13 +876,26 @@ function onHello() {
   $("project").textContent = state.project ? "Project: " + state.project : "";
   $("tab-new").hidden = !can("chat.compose");
   $("tab-settings").hidden = !can("plugin.settings");
+  $("tab-workflows").hidden = !can("plugin.tools");
   if (started) return;
   started = true;
   loadSettings();
   refreshRuns();
+  loadAgents();
+  if (typeof loadDefinitions === "function") loadDefinitions();
   setInterval(() => {
     if (document.visibilityState === "visible" && state.tab === "runs") refreshRuns();
   }, POLL_MS);
+}
+
+async function loadAgents() {
+  if (!can("agents.read")) return;
+  try {
+    state.agents = (await bridge.agents()).agents || [];
+    if (typeof renderEditor === "function" && editor.current) renderEditor();
+  } catch (error) {
+    toast("Couldn't load your agents: " + error.message, true);
+  }
 }
 
 initTabs();

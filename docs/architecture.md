@@ -86,6 +86,17 @@ plus synthesis against `max_jobs` before any branch starts. Collect merges in
 index order, records provenance and conflicts deterministically. Every job is
 `access="read"`; a receipt with changed files is a `read_only_violation`.
 
+**Custom** — a user-drawn graph interpreted by a fixed LangGraph graph:
+`validate → step ⟲ → finish`, plus `branch` (the `Send` target for parallel
+read-only branches, which lead back to `step` at their join). `step` runs
+whichever drawn step is current: an agent step runs one host job (`kind:
+"task"`, the step's access, and the assigned agent as `JobSpec.assignee`);
+an approval interrupts for a human decision; a checks step runs host
+verification; outcomes pick the next step. Because the compiled graph never
+depends on the drawing, checkpoints, resume and encryption behave exactly as
+for the built-in workflows. A run ends `verified` only at an end step reached
+after a checks step passed with no file-changing step since.
+
 ## State and identity
 
 - Thread id = host `attempt_id`. A true resume keeps it; a new execution

@@ -88,6 +88,27 @@ test in this repository ran and passed; results and commands are in
 - Not verified: the window opened inside a running Locus app by hand, and
   VoiceOver.
 
+## Drawn workflows and agents (0.4.0)
+
+- Interpreter tested with the agent host: loops until checks pass across a
+  restart, `max_visits` limits, declining, changes after checks, parallel
+  branches meeting at a join, a read-only branch that writes, choices, and
+  claims on assigned steps. Validation tested against unbounded, ambiguous
+  and code-bearing definitions.
+- Over real stdio: saving (with problems), listing, launching from the
+  window, hand-off text with a claim, and an unclaimed report refused.
+- Against real Locus code: released Locus lists the two new read-only tools
+  and hides nothing else; the panel-aware branch saves a drawn workflow,
+  launches it, hands its step over, and refuses a report without the claim.
+  Swift: message decoding for agent listing, run confirmation and hand-off,
+  and the per-run allow-list.
+- UI checked in a browser against the fake bridge (editor, templates,
+  drag-to-connect, save problems, start run with confirmation, hand-off,
+  dark mode, 760 px).
+- Not verified: the native confirmation dialog and a hand-off into a real
+  agent chat inside a running Locus app, and real models following hand-off
+  messages.
+
 ## Fixture-only (not exercised against Locus)
 
 - Cancellation of an active writer and queued parallel jobs, workspace

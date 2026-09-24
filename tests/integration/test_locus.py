@@ -96,8 +96,9 @@ def test_plugin_installs_from_marketplace_and_runs_in_locus(tmp_path):
     assert report["server_state"] == "connected", report["server_error"]
     # workflow_decide is never an agent tool: released Locus does not start the
     # server with it, and a panel-aware Locus hides it from agents.
-    assert report["tools"] == ["workflow_cancel", "workflow_overview", "workflow_report",
-                               "workflow_run", "workflow_start", "workflow_status"]
+    assert report["tools"] == ["workflow_cancel", "workflow_definition", "workflow_definitions",
+                               "workflow_overview", "workflow_report", "workflow_run",
+                               "workflow_start", "workflow_status"]
     assert report["prompts"][0] == "Approve this plan?\n\nCreate result.txt"  # Locus's prompt
     assert [s[2] for s in report["statuses"]] == [["inspect"], ["plan"], ["write"], []]
     assert report["final"]["status"] == "verified"
@@ -108,8 +109,11 @@ def test_plugin_installs_from_marketplace_and_runs_in_locus(tmp_path):
     else:  # a Locus build with plugin panels: declined in chat, approved in the window
         assert report["prompts"][1:] == ["Approve this plan?\n\nTouch result.txt"]
         [panel] = window["panels"]
-        assert (panel["id"], panel["tools"]) == ("workflows", ["workflow_decide"])
-        assert set(panel["capabilities"]) == {"plugin.settings", "plugin.tools", "chat.compose"}
+        assert panel["id"] == "workflows" and "workflow_dispatch" in panel["tools"]
+        assert {"agents.read", "agents.dispatch"} <= set(panel["capabilities"])
+        assert window["saved_definition"] == "two-agents"
+        assert window["launched"] == ["waiting_for_job", "Nova"]
+        assert "Plan the change" in window["handoff_text"] and window["stolen"].startswith("Error")
         assert window["default_values"]["reviewer_default"] is False
         assert window["saved_values"]["reviewer_default"] is True
         assert window["overview_settings"]["reviewer_default"] is True

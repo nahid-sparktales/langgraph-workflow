@@ -5,9 +5,23 @@ attempt; the host decides what is allowed and does it.
 
 ## What workflow data can and cannot change
 
-- Workflows are code-defined and selected by name from a fixed registry
-  (`verified_change`, `research`). No workflow definition, module path,
-  callable, or expression is ever loaded from data; there is no `eval`.
+- Workflows are selected by name from a fixed registry (`verified_change`,
+  `research`, `custom`). A `custom` workflow is a user-drawn graph that is
+  plain data: it only picks and connects a fixed set of step types (agent
+  step, approval, checks, split, join, start, end) run by one interpreter
+  node (`workflows/custom.py`). No module path, callable, expression or tool
+  name is ever loaded from data; there is no `eval`.
+  `definitions.validate_definition` rejects unknown fields, more than 40
+  steps or 120 connections, definitions over 64 KB, ambiguous outcomes,
+  unreachable steps, steps with no path to an end, and parallel branches that
+  could write or leave their split. Every loop is bounded by each step's
+  `max_visits` (≤ 5) and by the run's `max_transitions` and `max_jobs`. A run
+  pins its validated copy, so editing a workflow never changes a started run.
+- A step assigned to a saved agent is never shown to other chats: its
+  instructions reach only the agent it is handed to, with a random claim that
+  the report must carry (`AgentHost.dispatch`/`report`). This keeps work with
+  the chosen agent and model; it is not an authentication boundary against a
+  process that can read the plugin's data folder.
 - Requests are validated at the boundary (`WorkflowRequest.from_dict`):
   unknown fields rejected, identifiers restricted to
   `[A-Za-z0-9][A-Za-z0-9._:@/-]{0,159}` without `..`, text ≤ 16,000 chars,

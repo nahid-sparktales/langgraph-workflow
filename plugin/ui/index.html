@@ -22,7 +22,8 @@
   </div>
   <nav class="tabs" role="tablist" aria-label="Sections">
     <button type="button" role="tab" id="tab-runs" aria-controls="view-runs" aria-selected="true">Runs<span id="needs-count" class="badge" hidden></span></button>
-    <button type="button" role="tab" id="tab-new" aria-controls="view-new" aria-selected="false" tabindex="-1">New workflow</button>
+    <button type="button" role="tab" id="tab-new" aria-controls="view-new" aria-selected="false" tabindex="-1">New run</button>
+    <button type="button" role="tab" id="tab-workflows" aria-controls="view-workflows" aria-selected="false" tabindex="-1">Workflows</button>
     <button type="button" role="tab" id="tab-settings" aria-controls="view-settings" aria-selected="false" tabindex="-1">Settings</button>
   </nav>
 </header>
@@ -53,7 +54,19 @@
           <span class="line-name">Research a question</span>
           <span class="line-text">Read-only investigations, compared side by side, then one answer with sources.</span>
         </label>
+        <label class="line-card custom" id="custom-card">
+          <input type="radio" name="workflow" value="custom">
+          <span class="line-glyph" aria-hidden="true"><i></i><b></b><i></i><b></b><i></i></span>
+          <span class="line-name">A workflow you drew</span>
+          <span class="line-text">Your own steps and agents, from the Workflows tab.</span>
+        </label>
       </fieldset>
+
+      <div class="field only-custom">
+        <label for="definition" class="section-title">Which workflow?</label>
+        <select id="definition"></select>
+        <p class="hint" id="definition-agents"></p>
+      </div>
 
       <div class="field">
         <label for="goal" class="section-title">Describe the goal</label>
@@ -61,7 +74,7 @@
         <p class="error" id="goal-error" hidden>Describe what you want done.</p>
       </div>
 
-      <div class="field only-change">
+      <div class="field only-change only-custom">
         <p class="section-title" id="checks-title">Done when…</p>
         <p class="hint">Each check is verified on your files. The agent saying it's done never counts.</p>
         <div id="checks" aria-labelledby="checks-title"></div>
@@ -96,10 +109,24 @@
       </div>
 
       <div class="actions">
+        <button type="button" class="primary only-custom" id="start-here">Start run</button>
         <button type="submit" class="primary" id="draft">Draft in chat</button>
-        <p class="hint">Opens a new Locus chat with this request drafted. Review it, then press Send.</p>
+        <p class="hint" id="actions-hint">Opens a new Locus chat with this request drafted. Review it, then press Send.</p>
       </div>
     </form>
+  </section>
+
+  <section id="view-workflows" class="view workflows" role="tabpanel" aria-labelledby="tab-workflows" hidden>
+    <div id="wf-toolbar" class="wf-toolbar"></div>
+    <div id="wf-problems" class="wf-problems" role="alert" hidden></div>
+    <div class="wf-body">
+      <nav id="wf-palette" class="wf-palette" aria-label="Add a step"></nav>
+      <div class="wf-stage">
+        <div id="wf-canvas" class="wf-canvas"><div id="wf-board" class="wf-board"></div></div>
+        <div id="wf-legend" class="wf-legend" aria-label="Agents in this workflow"></div>
+      </div>
+      <aside id="wf-inspector" class="wf-inspector" aria-label="Selected step"></aside>
+    </div>
   </section>
 
   <section id="view-settings" class="view settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
@@ -116,5 +143,6 @@
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script src="app.js"></script>
+<script src="editor.js"></script>
 </body>
 </html>

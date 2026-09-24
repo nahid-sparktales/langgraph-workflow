@@ -227,6 +227,7 @@ class WorkflowExecutor:
             verification=values.get("verification"), repair_rounds=values.get("repair_rounds", 0),
             result=values.get("result", {}), usage=usage, goal=request.get("goal", ""),
             updated_at=float(attempt.get("updated_at") or 0.0),
+            title=(request.get("definition") or {}).get("title", ""),
         )
 
     def close(self) -> None:

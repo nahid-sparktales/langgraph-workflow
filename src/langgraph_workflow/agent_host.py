@@ -18,6 +18,7 @@ tools, or shell commands itself. It
 from __future__ import annotations
 
 import json
+import secrets
 import sqlite3
 import time
 from collections.abc import Callable
@@ -52,6 +53,8 @@ CREATE TABLE IF NOT EXISTS ops (
 CREATE TABLE IF NOT EXISTS events (
     seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT UNIQUE, attempt_id TEXT, payload TEXT);
 CREATE TABLE IF NOT EXISTS cancels (attempt_id TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS claims (
+    operation_id TEXT PRIMARY KEY, token TEXT NOT NULL, dispatched_at REAL NOT NULL);
 """
 
 
@@ -141,7 +144,33 @@ class AgentHost:
                               "ORDER BY dispatched_at", (attempt_id,)).fetchall()
         return [json.loads(r["spec"]) for r in rows]
 
-    def report(self, operation_id: str, outcome: str, result: Any, note: str = "") -> JobReceipt:
+    def dispatch(self, operation_id: str) -> dict:
+        """Hand an assigned job to its agent: the claim the report must carry.
+
+        A job with an ``assignee`` is shown only through this call, so an
+        agent in some other chat cannot report it. Calling it again returns
+        the same claim (the hand-off may be retried).
+        """
+        with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT spec, receipt FROM ops WHERE operation_id=?",
+                             (operation_id,)).fetchone()
+            if row is None or row["receipt"]:
+                db.execute("ROLLBACK")
+                raise ReportRejected("no pending job with that id")
+            spec = json.loads(row["spec"])
+            if not spec.get("assignee"):
+                db.execute("ROLLBACK")
+                raise ReportRejected("this job is not assigned to a particular agent")
+            first = db.execute("INSERT OR IGNORE INTO claims VALUES (?,?,?)",
+                               (operation_id, secrets.token_urlsafe(18), time.time())).rowcount
+            token = db.execute("SELECT token FROM claims WHERE operation_id=?",
+                               (operation_id,)).fetchone()["token"]
+            db.execute("COMMIT")
+        return {"claim": token, "spec": spec, "first": bool(first)}
+
+    def report(self, operation_id: str, outcome: str, result: Any, note: str = "",
+               claim: str = "") -> JobReceipt:
         """Record the agent's outcome for a dispatched job, exactly once."""
         if outcome not in OUTCOMES:
             raise ReportRejected(f"outcome must be one of {', '.join(OUTCOMES)}")
@@ -162,6 +191,14 @@ class AgentHost:
             if row["receipt"]:
                 db.execute("ROLLBACK")
                 raise ReportRejected("operation already reported")
+            assignee = json.loads(row["spec"]).get("assignee")
+            if assignee:
+                held = db.execute("SELECT token FROM claims WHERE operation_id=?",
+                                  (operation_id,)).fetchone()
+                if held is None or not secrets.compare_digest(held["token"], claim or ""):
+                    db.execute("ROLLBACK")
+                    raise ReportRejected("this job belongs to another agent; only the chat it "
+                                         "was handed to can report it")
             files = changed(json.loads(row["before"]) if row["before"] else None,
                             snapshot(self.workspace))
             receipt = JobReceipt(

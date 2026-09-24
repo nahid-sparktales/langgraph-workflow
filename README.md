@@ -1,8 +1,10 @@
 # langgraph-workflow
 
 A small, host-agnostic LangGraph workflow executor. It runs two bounded,
-code-defined workflows — **verified change** and **read-only research** — on
-real LangGraph graphs with a SQLite checkpoint, and does every effectful
+code-defined workflows — **verified change** and **read-only research** — and
+graphs users draw themselves (steps, approvals, checks, parallel branches and
+bounded loops, as validated data) on real LangGraph graphs with a SQLite
+checkpoint, and does every effectful
 thing (jobs, permissions, verification, events) through a narrow
 `WorkflowHost` port implemented by the host runtime. Locus is the first host;
 the package never imports it.
@@ -31,7 +33,10 @@ This repository is a Locus plugin marketplace. In Locus open **Settings →
 Extensions → Marketplace**, add `nahid-sparktales/langgraph-workflow`, then
 **Review & install** *LangGraph Workflows*. The Locus agent drives each
 workflow through the plugin's MCP tools and you approve plans in a Locus
-prompt. See [docs/locus-plugin.md](docs/locus-plugin.md) for what it does and
+prompt. With a Locus build that supports plugin panels, the plugin also opens
+its own window: follow runs, draw your own workflows on a canvas, give each
+step one of your saved agents (a Claude or ChatGPT plan, Kimi, vLLM or a local
+model), and start runs whose steps are handed to those agents. See [docs/locus-plugin.md](docs/locus-plugin.md) for what it does and
 does not guarantee.
 
 ## Try it offline

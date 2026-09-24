@@ -32,8 +32,14 @@ def test_manifest_marketplace_and_mcp_config():
     assert server["share_workspace_root"] is True
     [panel] = manifest["locus"]["panels"]
     assert (PLUGIN / panel["entrypoint"]).is_file()
-    assert set(panel["capabilities"]) == {"plugin.settings", "plugin.tools", "chat.compose"}
-    assert panel["tools"] == ["workflow_decide"]  # hidden from agents by Locus
+    assert set(panel["capabilities"]) == {"plugin.settings", "plugin.tools", "chat.compose",
+                                          "agents.read", "agents.dispatch"}
+    # Hidden from agents by Locus; the server registers them only when told so.
+    assert panel["tools"] == ["workflow_decide", "workflow_save_definition",
+                              "workflow_delete_definition", "workflow_launch", "workflow_dispatch"]
+    source = (ROOT / "src/langgraph_workflow/mcp_server.py").read_text()
+    for tool in panel["tools"]:
+        assert f'"{tool}" in panel_tools' in source
     skill = (PLUGIN / "skills/langgraph-workflow/SKILL.md").read_text()
     assert re.match(r"---\nname: langgraph-workflow\ndescription: .+\n---\n", skill)
 

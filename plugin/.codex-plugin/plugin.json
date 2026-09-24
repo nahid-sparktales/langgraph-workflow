@@ -1,6 +1,6 @@
 {
   "name": "langgraph-workflow",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Durable, verified workflows (verified change, read-only research) that the Locus agent drives step by step, with plan approval asked of you directly.",
   "author": {
     "name": "SparkTales Inc.",
@@ -28,10 +28,16 @@
         "capabilities": [
           "plugin.settings",
           "plugin.tools",
-          "chat.compose"
+          "chat.compose",
+          "agents.read",
+          "agents.dispatch"
         ],
         "tools": [
-          "workflow_decide"
+          "workflow_decide",
+          "workflow_save_definition",
+          "workflow_delete_definition",
+          "workflow_launch",
+          "workflow_dispatch"
         ],
         "settings_schema": "./settings.schema.json"
       }

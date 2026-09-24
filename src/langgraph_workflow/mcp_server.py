@@ -14,6 +14,7 @@ import json
 import os
 import re
 import sys
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Literal
@@ -27,7 +28,8 @@ from mcp_types import ToolAnnotations
 from pydantic import create_model
 
 from .agent_host import AgentHost, ReportRejected
-from .contracts import TERMINAL_STATUSES, AttemptStatus, digest
+from .contracts import TERMINAL_STATUSES, AttemptStatus, ContractError, digest
+from .definitions import validate_definition
 from .executor import DecisionRejected, WorkflowExecutor
 
 RESULT_SHAPES = {
@@ -38,11 +40,14 @@ RESULT_SHAPES = {
     "investigate": {"claims": {"short_key": "value"}, "sources": ["where each claim came from"]},
     "synthesize": {"summary": "answer", "claims": {"short_key": "value"},
                    "sources": ["..."], "conflicts_reported": ["conflicting claim keys"]},
+    "task": {"summary": "what you did or found, for the next step and the user",
+             "choice": "only when inputs.choices is not empty: exactly one of them"},
 }
 READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
 STATEFUL = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False,
                            openWorldHint=False)
 _ATTEMPT = re.compile(r"^lgw-([0-9a-f]{12})-[0-9a-f]{10}$")
+_DEFINITION_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
 
 # User settings, edited in the Locus window and stored by Locus in the plugin's
 # data folder. Mirrors plugin/settings.schema.json (a test keeps them equal).
@@ -130,6 +135,59 @@ def timeline(status: AttemptStatus, reviewer: bool, pending_kinds: list[str]) ->
     return out
 
 
+class Definitions:
+    """Workflow graphs drawn in the Locus window: one JSON file each, shared
+    by every project. A run pins its own copy, so editing never changes a
+    run that already started."""
+
+    def __init__(self, data: Path) -> None:
+        self.root = data / "definitions"
+
+    def _path(self, definition_id: str) -> Path:
+        if not isinstance(definition_id, str) or not _DEFINITION_ID.match(definition_id):
+            raise ToolError("definition_id must come from workflow_definitions")
+        return self.root / f"{definition_id}.json"
+
+    def get(self, definition_id: str) -> dict:
+        path = self._path(definition_id)
+        try:
+            return json.loads(path.read_text())["definition"]
+        except (OSError, ValueError, KeyError) as error:
+            raise ToolError(f"no workflow named {definition_id}") from error
+
+    def list(self) -> list[dict]:
+        out = []
+        for path in sorted(self.root.glob("*.json")) if self.root.is_dir() else []:
+            try:
+                saved = json.loads(path.read_text())
+                d = saved["definition"]
+            except (OSError, ValueError, KeyError):
+                continue
+            agents = sorted(({n.get("agent_name") or "" for n in d["nodes"]
+                              if n["type"] == "task"} | {d.get("agent_name") or ""}) - {""})
+            out.append({"id": d["id"], "title": d["title"], "description": d["description"],
+                        "steps": sum(1 for n in d["nodes"] if n["type"] not in ("start", "end")),
+                        "agents": agents, "updated_at": saved.get("updated_at", 0)})
+        return sorted(out, key=lambda d: -d["updated_at"])
+
+    def save(self, definition: dict) -> dict:
+        definition = validate_definition(definition)
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        path = self._path(definition["id"])
+        tmp = path.with_suffix(".tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as handle:
+            json.dump({"definition": definition, "updated_at": time.time()}, handle)
+        tmp.replace(path)
+        return definition
+
+    def delete(self, definition_id: str) -> bool:
+        path = self._path(definition_id)
+        existed = path.exists()
+        path.unlink(missing_ok=True)
+        return existed
+
+
 class Workspaces:
     """One host and executor per workspace, created on first use."""
 
@@ -210,7 +268,7 @@ async def _ask(ctx: Context, pending: dict) -> dict | None:
     """Ask the human through the client's UI; None if not answered."""
     options = [o for o in pending["options"] if o != "edit"]
     schema = create_model("Decision", choice=(Literal[tuple(options)], ...))
-    title = {"plan_approval": "Approve this plan?",
+    title = {"plan_approval": "Approve this plan?", "approval": "Your approval is needed",
              "conflict_resolution": "The investigations disagree. How should they be resolved?"}
     message = f"{title.get(pending['kind'], 'Decision needed')}\n\n{pending['summary']}"
     try:
@@ -224,22 +282,92 @@ async def _ask(ctx: Context, pending: dict) -> dict | None:
             "digest": pending["digest"], "choice": answer.data.choice, "actor": "user"}
 
 
+def _job(spec: dict) -> dict[str, Any]:
+    return {"operation_id": spec["operation_id"], "kind": spec["kind"], "access": spec["access"],
+            "instruction": spec["instruction"], "inputs": spec["inputs"],
+            "result_shape": RESULT_SHAPES[spec["kind"]]}
+
+
+def _handoff_text(attempt_id: str, spec: dict, claim: str) -> str:
+    """The message Locus sends to the assigned agent's chat for one job."""
+    inputs = spec["inputs"]
+    lines = [
+        f"LangGraph Workflows hands you step \"{inputs.get('title', '')}\" of a workflow run.",
+        f"Goal of the run: {inputs.get('goal', '')}",
+        "",
+        spec["instruction"],
+        "",
+        "This step may only read files; do not change any file." if spec["access"] == "read"
+        else "This step may change files in the project.",
+    ]
+    if inputs.get("context"):
+        lines += ["", "Results of earlier steps:"]
+        lines += [f"- {c.get('title', '')}: {c.get('summary', '')}" for c in inputs["context"]]
+    if inputs.get("choices"):
+        lines += ["", "Finish by choosing exactly one of: " + ", ".join(inputs["choices"])]
+    lines += ["", "When done, call the workflow_report tool with:",
+              json.dumps({"attempt_id": attempt_id, "operation_id": spec["operation_id"],
+                          "claim": claim, "outcome": "completed | failed | refused",
+                          "result": RESULT_SHAPES["task"]}, indent=2),
+              "Report only what actually happened; file changes are checked independently."]
+    return "\n".join(lines)
+
+
+def _custom_steps(definition: dict, values: dict, status: AttemptStatus) -> list[dict]:
+    """Drawn steps in breadth-first order from start, with their state."""
+    by_id = {n["id"]: n for n in definition["nodes"]}
+    start = next(n["id"] for n in definition["nodes"] if n["type"] == "start")
+    order, queue = [], [start]
+    while queue:
+        current = queue.pop(0)
+        if current in order:
+            continue
+        order.append(current)
+        queue += [e["to"] for e in definition["edges"] if e["from"] == current]
+    visits, current = values.get("visits") or {}, values.get("node")
+    finished = status.status in TERMINAL_STATUSES
+    out = []
+    for node_id in order:
+        node = by_id[node_id]
+        if node["type"] == "start":
+            continue
+        if node_id == current and not finished:
+            state = "current"
+        elif node_id == current:
+            state = "done" if status.status == "verified" else "stopped"
+        elif visits.get(node_id):
+            state = "done"
+        else:
+            state = "upcoming"
+        out.append({"id": node_id, "label": node["title"], "state": state,
+                    "type": node["type"], "visits": visits.get(node_id, 0)})
+    return out
+
+
 def _view(host: AgentHost, status: AttemptStatus) -> dict[str, Any]:
     out: dict[str, Any] = {"attempt_id": status.attempt_id, "workflow": status.workflow,
                            "status": status.status, "phase": status.phase}
     if status.blocker:
         out["blocker"] = status.blocker
     if status.status == "waiting_for_job":
-        out["jobs"] = [{
-            "operation_id": spec["operation_id"], "kind": spec["kind"], "access": spec["access"],
-            "instruction": spec["instruction"], "inputs": spec["inputs"],
-            "result_shape": RESULT_SHAPES[spec["kind"]],
-        } for spec in host.pending(status.attempt_id)]
+        pending = host.pending(status.attempt_id)
+        out["jobs"] = [_job(spec) for spec in pending if not spec.get("assignee")]
+        handoffs = [{"operation_id": spec["operation_id"],
+                     "step": spec["inputs"].get("title", ""),
+                     "agent": spec["inputs"].get("agent_name") or "another agent"}
+                    for spec in pending if spec.get("assignee")]
         out["next_step"] = (
             "Do each job with your normal tools. Jobs with access 'read' must not change any "
             "file. Then call workflow_report with the operation_id, outcome 'completed', "
             "'failed' or 'refused' (when permission was denied), and a result in result_shape. "
             "Report only what actually happened.")
+        if handoffs:
+            out["handoffs"] = handoffs
+            if not out["jobs"]:
+                out["next_step"] = (
+                    "The next step belongs to " + ", ".join(h["agent"] for h in handoffs) +
+                    ". Do not do it yourself: it is handed to that agent's own chat from the "
+                    "LangGraph Workflows window. Tell the user, then stop.")
     elif status.status == "waiting_for_input":
         out["next_step"] = ("A decision from the user is pending. Ask them to answer the "
                             "prompt, then call workflow_status.")
@@ -257,6 +385,8 @@ def _view(host: AgentHost, status: AttemptStatus) -> dict[str, Any]:
 
 def build_server(data: Path) -> MCPServer:
     spaces = Workspaces(data)
+    definitions = Definitions(data)
+    panel_tools = set(os.environ.get("LOCUS_PANEL_TOOLS", "").split(","))
     server = MCPServer(
         name="langgraph-workflow",
         instructions="Durable, verified workflows. Start one with workflow_start, perform "
@@ -284,9 +414,10 @@ def build_server(data: Path) -> MCPServer:
 
     @server.tool(annotations=STATEFUL)
     async def workflow_start(
-        workflow: Literal["verified_change", "research"], goal: str, ctx: Context,
+        workflow: Literal["verified_change", "research", "custom"], goal: str, ctx: Context,
         checks: list[dict] | None = None, plan_steps: list[str] | None = None,
         investigations: list[str] | None = None, reviewer: bool | None = None,
+        definition_id: str | None = None,
     ) -> dict:
         """Start a workflow in the current workspace.
 
@@ -298,7 +429,17 @@ def build_server(data: Path) -> MCPServer:
         file_exists, file_contains, json_value (pointer + value) are verified by
         this plugin; command and human_review end in needs_review.
         reviewer: add a review step; defaults to the user's setting.
+        custom: a workflow the user drew; pass its definition_id from
+        workflow_definitions. Steps assigned to other agents are handed to
+        them from the LangGraph Workflows window.
         """
+        host, executor, request = await begin(ctx, workflow, goal, checks, plan_steps,
+                                              investigations, reviewer, definition_id)
+        status = await asyncio.to_thread(executor.start, request)
+        return await advance(ctx, host, executor, status)
+
+    async def begin(ctx, workflow, goal, checks, plan_steps, investigations, reviewer,
+                    definition_id):
         if reviewer is None:
             reviewer = spaces.settings()["reviewer_default"]
         key = spaces.key_for(await _workspace(ctx))
@@ -310,20 +451,27 @@ def build_server(data: Path) -> MCPServer:
             "investigations": list(investigations or []), "reviewer": reviewer}
         if plan_steps:
             request["plan"] = {"steps": [{"title": s} for s in plan_steps]}
-        status = await asyncio.to_thread(executor.start, request)
-        return await advance(ctx, host, executor, status)
+        if workflow == "custom":
+            if not definition_id:
+                raise ToolError("custom workflows need a definition_id from workflow_definitions")
+            request["definition"] = definitions.get(definition_id)
+            request["reviewer"] = False
+        elif definition_id:
+            raise ToolError("definition_id is only for workflow='custom'")
+        return host, executor, request
 
     @server.tool(annotations=STATEFUL)
     async def workflow_report(
         attempt_id: str, operation_id: str, outcome: Literal["completed", "failed", "refused"],
-        ctx: Context, result: dict | None = None, note: str = "",
+        ctx: Context, result: dict | None = None, note: str = "", claim: str = "",
     ) -> dict:
-        """Report the outcome of one job you performed, then get the next step."""
+        """Report the outcome of one job you performed, then get the next step.
+        claim: required for a step that was handed to you; copy it from the hand-off."""
         host, executor = spaces.for_attempt(attempt_id)
         if not operation_id.startswith(attempt_id + "/"):
             raise ToolError("operation_id does not belong to this attempt")
         try:
-            host.report(operation_id, outcome, result, note)
+            host.report(operation_id, outcome, result, note, claim)
         except ReportRejected as error:
             raise ToolError(str(error)) from error
         status = await asyncio.to_thread(executor.resume, attempt_id)
@@ -350,12 +498,18 @@ def build_server(data: Path) -> MCPServer:
         return _view(host, status)
 
     def summary(key: str, host: AgentHost, status: AttemptStatus) -> dict[str, Any]:
+        pending = (host.pending(status.attempt_id) if status.status == "waiting_for_job"
+                   else [])
         return {"attempt_id": status.attempt_id, "workflow": status.workflow,
+                "title": status.title,
                 "goal": status.goal[:300], "status": status.status, "blocker": status.blocker,
                 "needs_you": bool(status.pending_decision), "project": spaces.name(key),
                 "updated_at": status.updated_at,
-                "waiting_jobs": len(host.pending(status.attempt_id))
-                if status.status == "waiting_for_job" else 0}
+                "waiting_jobs": len(pending),
+                "handoffs": [{"operation_id": j["operation_id"], "agent": j["assignee"],
+                              "agent_name": j["inputs"].get("agent_name", ""),
+                              "title": j["inputs"].get("title", "")}
+                             for j in pending if j.get("assignee")]}
 
     @server.tool(annotations=READ_ONLY)
     async def workflow_overview() -> dict:
@@ -384,14 +538,24 @@ def build_server(data: Path) -> MCPServer:
         request = values.get("request", {})
         pending = host.pending(attempt_id)
         results = {r["check_id"]: r for r in (status.verification or {}).get("results", [])}
+        definition = request.get("definition")
+        steps = (_custom_steps(definition, values, status) if definition else
+                 timeline(status, bool(request.get("reviewer")), [j["kind"] for j in pending]))
         return {
             **summary(match.group(1), host, status),
             "goal": status.goal, "phase": status.phase, "detail": status.detail,
             "reviewer": bool(request.get("reviewer")),
-            "steps": timeline(status, bool(request.get("reviewer")), [j["kind"] for j in pending]),
+            "steps": steps,
+            "graph": definition and {"nodes": definition["nodes"], "edges": definition["edges"],
+                                     "agent": definition["agent"],
+                                     "agent_name": definition["agent_name"]},
+            "outputs": [values.get("outputs", {})[i] for i in values.get("order", [])
+                        if i in values.get("outputs", {})][-10:],
             "plan": [step.get("title", "") for step in (values.get("plan") or {}).get("steps", [])],
             "decision": status.pending_decision,
             "jobs": [{"operation_id": j["operation_id"], "kind": j["kind"], "access": j["access"],
+                      "title": j["inputs"].get("title", ""), "agent": j.get("assignee", ""),
+                      "agent_name": j["inputs"].get("agent_name", ""),
                       "instruction": j["instruction"][:500]} for j in pending],
             "checks": [{"id": c["id"], "kind": c.get("kind", ""),
                         "requirement": c.get("requirement", ""),
@@ -406,9 +570,69 @@ def build_server(data: Path) -> MCPServer:
                          if not e.get("diagnostic")],
         }
 
-    if "workflow_decide" in os.environ.get("LOCUS_PANEL_TOOLS", "").split(","):
-        # Registered only when Locus confirms it hides this tool from agents,
-        # so answering a decision stays a human action in the Locus window.
+    @server.tool(annotations=READ_ONLY)
+    async def workflow_definitions() -> dict:
+        """Workflows the user drew in the LangGraph Workflows window. Start one
+        with workflow_start(workflow="custom", definition_id=...)."""
+        return {"definitions": definitions.list()}
+
+    @server.tool(annotations=READ_ONLY)
+    async def workflow_definition(definition_id: str) -> dict:
+        """One drawn workflow: its steps, connections and assigned agents."""
+        return definitions.get(definition_id)
+
+    # Tools below are registered only when Locus confirms it hides them from
+    # agents, so they are called only by the user's LangGraph Workflows window.
+    if "workflow_save_definition" in panel_tools:
+        @server.tool(annotations=STATEFUL)
+        async def workflow_save_definition(definition: dict) -> dict:
+            """Save a workflow drawn in the window; returns problems instead
+            of saving when the graph cannot run."""
+            try:
+                return {"saved": definitions.save(definition)}
+            except ContractError as error:
+                return {"problems": [str(error)]}
+
+    if "workflow_delete_definition" in panel_tools:
+        @server.tool(annotations=STATEFUL)
+        async def workflow_delete_definition(definition_id: str) -> dict:
+            """Delete a drawn workflow. Runs that already started keep their copy."""
+            return {"deleted": definitions.delete(definition_id)}
+
+    if "workflow_launch" in panel_tools:
+        @server.tool(annotations=STATEFUL)
+        async def workflow_launch(
+            workflow: Literal["verified_change", "research", "custom"], goal: str, ctx: Context,
+            checks: list[dict] | None = None, plan_steps: list[str] | None = None,
+            investigations: list[str] | None = None, reviewer: bool | None = None,
+            definition_id: str | None = None,
+        ) -> dict:
+            """Start a run from the window. Decisions wait in the window
+            instead of prompting in a chat."""
+            host, executor, request = await begin(ctx, workflow, goal, checks, plan_steps,
+                                                  investigations, reviewer, definition_id)
+            await asyncio.to_thread(executor.start, request)
+            return await workflow_run(request["attempt_id"])
+
+    if "workflow_dispatch" in panel_tools:
+        @server.tool(annotations=STATEFUL)
+        async def workflow_dispatch(attempt_id: str, operation_id: str) -> dict:
+            """The message that hands one assigned step to its agent's chat."""
+            host, _ = spaces.for_attempt(attempt_id)
+            if not operation_id.startswith(attempt_id + "/"):
+                raise ToolError("operation_id does not belong to this attempt")
+            try:
+                handed = host.dispatch(operation_id)
+            except ReportRejected as error:
+                raise ToolError(str(error)) from error
+            spec = handed["spec"]
+            return {"agent": spec["assignee"], "agent_name": spec["inputs"].get("agent_name", ""),
+                    "title": spec["inputs"].get("title", ""), "access": spec["access"],
+                    "handed_before": not handed["first"],
+                    "text": _handoff_text(attempt_id, spec, handed["claim"])}
+
+    if "workflow_decide" in panel_tools:
+        # Answering a decision stays a human action in the Locus window.
         @server.tool(annotations=STATEFUL)
         async def workflow_decide(attempt_id: str, decision_id: str, revision: int,
                                   digest: str, choice: str) -> dict:

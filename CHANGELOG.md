@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.0 — 2026-09-24
+
+- Drawn workflows (`workflow="custom"`): a graph of agent steps, approvals,
+  checks, parallel read-only branches and bounded loops, validated as plain
+  data (`definitions.py`) and run by one interpreter node
+  (`workflows/custom.py`) inside a fixed LangGraph graph. Runs pin their copy.
+- Agent assignment: each step (or the whole workflow) can name a saved agent;
+  `JobSpec.assignee` carries it and `AgentHost.dispatch` hands the job over
+  with a claim that the report must carry, so other chats cannot do it.
+- Locus window: a Workflows tab with a canvas editor (palette, drag to
+  connect, inspector, templates, agent line colors), starting drawn workflows
+  from the window with one Locus confirmation per run, and automatic
+  hand-offs to each step's agent while the window is open.
+- MCP tools `workflow_definitions`, `workflow_definition` (read-only) and, for
+  the window only, `workflow_save_definition`, `workflow_delete_definition`,
+  `workflow_launch`, `workflow_dispatch`; `workflow_report` takes `claim`.
+
 ## 0.3.0 — 2026-09-24
 
 - Workflows window for Locus builds with plugin panels (`locus.panels` in the

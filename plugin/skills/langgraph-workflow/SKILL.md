@@ -17,6 +17,10 @@ The `workflows` MCP server keeps the workflow state; you do the work.
   needs-review. Pass `plan_steps` only if the user already agreed on a plan.
 - **Research**: `workflow_start` with `workflow="research"`, the `goal`, and
   up to four independent `investigations`.
+- **A workflow the user drew**: `workflow_definitions` lists them. Start one
+  with `workflow="custom"`, its `definition_id`, the `goal` and any `checks`.
+  Its jobs have kind `task`: follow the job's `instruction`, and report a
+  `result` with a `summary`, plus a `choice` when `inputs.choices` lists some.
 
 ## Loop
 
@@ -30,6 +34,14 @@ Each result has a `status` and, while `waiting_for_job`, a list of `jobs`:
    and a `result` shaped like `result_shape`. Report only what happened:
    file changes and checks are verified independently of your report.
 3. Continue with the next result until the status is final.
+
+Some steps belong to a particular saved agent. They are listed under
+`handoffs` instead of `jobs`: do not do them. The LangGraph Workflows window
+hands each one to that agent's own chat; tell the user who has the next step.
+
+When a message says "LangGraph Workflows hands you step …", that step is
+yours: do it, then call `workflow_report` with the `attempt_id`,
+`operation_id` and `claim` given in the message.
 
 Plan approval and conflict choices are asked of the user in a Locus prompt
 during `workflow_start` or `workflow_report`. You cannot answer them. If the
