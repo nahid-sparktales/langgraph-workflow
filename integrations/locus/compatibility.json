@@ -1,0 +1,89 @@
+{
+  "schema": "langgraph-workflow.locus-compatibility/1",
+  "recorded": "2026-09-24",
+  "package": {
+    "name": "langgraph-workflow",
+    "version": "0.1.0",
+    "commit_under_test": "1f3698cf84b80f9e86549325ec0e349588858d99",
+    "wheel_sha256": "0f9931e7e68b5457ae14632e7fabeaeac50b391cd01a6663b6b72b4b995ac334",
+    "contract_version": "1",
+    "state_schema_version": 1,
+    "event_schema": "langgraph-workflow.event/1",
+    "workflow_definitions": ["verified_change/1", "research/1"],
+    "published": false
+  },
+  "locus": {
+    "repository": "https://github.com/nahid-sparktales/locus",
+    "tested_sha": "5ac5b5b1c450eff0013ed6caae8c696dfc6fb0eb",
+    "tested_tree": "d1529dd581548a2a4130e9acbb7bead77383e389",
+    "same_tree_as": {
+      "c2d0e75b4fc1dc3995966808e88e91e177457b25": "main after PR #126 (checkout was moved to it by another actor during this work)"
+    },
+    "discovery_reference_sha": "8cf6226dffd9551fab9a6509ae8bc57ec916d471",
+    "discovery_reference_delta": "two test files only",
+    "original_checkout_modified": false,
+    "disposable_checkout": {
+      "method": "git archive <tested_sha> | tar -x; git init; one commit per patch (prepare_checkout.sh)",
+      "base_commit_subject": "Locus 5ac5b5b1c450eff0013ed6caae8c696dfc6fb0eb (tree export)",
+      "patch_commits": ["0001-expose-bounded-read-job-seam.patch"]
+    },
+    "patches": [
+      {
+        "file": "patches/0001-expose-bounded-read-job-seam.patch",
+        "sha256": "248dc648dd9ee658e78b6c1289e422b841cb25a8a412881b53597d57977945ca",
+        "kind": "refactor (no behavior change)",
+        "summary": "public TeamOrchestrator.run_read_job delegating to _call_agent; refuses execution_kind=write; one Locus test",
+        "diffstat": "2 files, +39"
+      }
+    ]
+  },
+  "required_capabilities": {
+    "verified_change": ["jobs.write", "verify", "events", "cancel", "jobs.read (unless a plan is supplied and no reviewer)", "decisions (when plan approval is required)"],
+    "research": ["jobs.read", "events", "cancel", "verify (when checks are declared)", "decisions (when conflict approval is required)"],
+    "locus_adapter_reports": ["jobs.read (only with patch 0001)", "jobs.write", "verify", "decisions", "events", "cancel"]
+  },
+  "runtime": {
+    "python": "3.14.6",
+    "install": "pip install --require-hashes --only-binary=:all: -r agent/requirements-runtime.lock; then the wheel with -c <lock pins> --only-binary=:all:",
+    "resolved": {
+      "langgraph": "1.2.2",
+      "langgraph-sdk": "0.3.15",
+      "langgraph-checkpoint": "4.2.0",
+      "langgraph-checkpoint-sqlite": "3.1.1",
+      "langchain-core": "1.6.4",
+      "langsmith": "0.14.0",
+      "websockets": "17.0 (Locus pin, unchanged)"
+    },
+    "locus_pins_moved": false,
+    "added_distributions": ["aiosqlite", "distro", "httpcore", "httpx", "jsonpatch", "jsonpointer", "langchain-core", "langchain-protocol", "langgraph", "langgraph-checkpoint", "langgraph-checkpoint-sqlite", "langgraph-prebuilt", "langgraph-sdk", "langsmith", "orjson", "ormsgpack", "packaging", "pyyaml", "requests-toolbelt", "sqlite-vec", "tenacity", "uuid-utils", "xxhash", "zstandard"],
+    "added_native_binaries": 8,
+    "conflict_noted": "langgraph>=1.2.3 requires langgraph-sdk>=0.4.2, which pins websockets<17; Locus pins websockets==17.0, so the Locus resolution is langgraph 1.2.2",
+    "binary_wheel_resolution": {
+      "macos-arm64 (cp314)": "pass (resolution and execution)",
+      "linux-x86_64 (cp314, manylinux)": "pass (resolution only; not executed)",
+      "linux-arm64 (cp314, manylinux)": "pass (resolution only; not executed)"
+    }
+  },
+  "results": [
+    {"name": "Locus backend suite, patched tree (5ac5b5b1 + 0001), package installed", "command": "cd checkout && ../venv/bin/python -m pytest -q -p no:cacheprovider", "result": "pass", "detail": "2813 passed, 31 subtests passed in 317.70s"},
+    {"name": "Locus backend suite, unpatched tree (5ac5b5b1), package installed", "command": "cd base && ../venv/bin/python -m pytest -q -p no:cacheprovider", "result": "pass", "detail": "2812 passed, 31 subtests passed in 309.16s"},
+    {"name": "Package + Locus integration tests inside the Locus runtime venv", "command": "LOCUS_PYTHON=<venv>/bin/python <venv>/bin/python -m pytest -q tests", "result": "pass", "detail": "89 passed, 1 skipped (opt-in packaging test)"},
+    {"name": "Locus integration scenarios", "command": "pytest tests/integration/test_locus.py", "result": "pass", "detail": "6 tests: restart across approval, denied write, stale evidence after verification, parallel research, unpatched capability gate, 17-check host contract"},
+    {"name": "Package suite, Python 3.14.6, langgraph 1.2.12", "command": ".venv/bin/python -m pytest -q", "result": "pass", "detail": "83 passed, 7 skipped (Locus/packaging opt-in)"},
+    {"name": "Package suite from installed wheel, Python 3.10.21, langgraph 1.2.12", "command": "pytest tests (wheel in fresh venv)", "result": "pass", "detail": "83 passed, 7 skipped"},
+    {"name": "Package suite from installed wheel, Python 3.12.14, langgraph 1.2.12", "command": "pytest tests (wheel in fresh venv)", "result": "pass", "detail": "83 passed, 7 skipped"},
+    {"name": "Package suite from installed wheel, Python 3.10.21, minimum deps (langgraph 1.2.2, checkpoint 4.1.0, sqlite 3.1.0)", "command": "pytest tests (wheel in fresh venv)", "result": "pass", "detail": "83 passed, 7 skipped"},
+    {"name": "Wheel build, fresh-venv install, demo outside the checkout", "command": "LGW_PACKAGING=1 pytest tests/integration/test_packaging.py", "result": "pass", "detail": "1 passed"},
+    {"name": "Offline demo (process restarts, crash inside a checkpoint write)", "command": "python examples/demo.py --profile <new dir>", "result": "pass", "detail": "verified change and research both verified; writer never repeated; duplicate decision rejected"},
+    {"name": "Fixture overhead evaluation", "command": "python examples/evaluate.py --runs 20", "result": "pass", "detail": "60/60 runs correct; raw data in evaluation/fixture-overhead.json"},
+    {"name": "Edition audit of added files with Locus AuditAppEdition patterns", "command": "WALLET_FILES / WALLET_CODE / Mach-O strings over 25 distributions", "result": "pass", "detail": "1837 files, 8 Mach-O, 0 matches"},
+    {"name": "Lint", "command": "ruff check src tests examples integrations", "result": "pass", "detail": "All checks passed"},
+    {"name": "Python 3.11 and 3.13", "result": "not run", "detail": "no local interpreter; included in the CI matrix"},
+    {"name": "CI workflow", "result": "not run", "detail": "no remote repository"},
+    {"name": "Linux runtime targets", "result": "not run", "detail": "binary wheel resolution only"},
+    {"name": "Signed/notarized macOS app bundle", "result": "not run", "detail": "no app build; 8 added native libraries unsigned"},
+    {"name": "Native Swift build/tests", "result": "not run", "detail": "no Swift changes in this phase"},
+    {"name": "Live providers, paid accounts, remote runtime, SSH", "result": "not run", "detail": "not authorized in this phase"},
+    {"name": "pip-audit of added dependencies", "result": "not run"}
+  ]
+}

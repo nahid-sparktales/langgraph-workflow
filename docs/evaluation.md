@@ -21,7 +21,13 @@ SQLite I/O. Raw per-run rows (status, timings, checkpoint and pending-write
 counts, database bytes, host-call counts) are in
 `evaluation/fixture-overhead.json`.
 
-RESULTS_TABLE
+| Scenario | Correct | Median ms | p95 ms | Setup ms | Checkpoints | Jobs | Host calls |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `change_supplied_plan` | 20/20 | 21.77 | 24.0 | 4.34 | 8 | 1 | capabilities 1, admit 1, publish 6, lookup 1, execute 1, verify 2 |
+| `change_full_with_repair_and_review` | 20/20 | 61.08 | 65.65 | 4.88 | 16 | 7 | capabilities 1, admit 1, publish 20, lookup 7, execute 7, verify 4 |
+| `research_three_parallel` | 20/20 | 37.24 | 43.9 | 4.32 | 9 | 4 | capabilities 1, admit 1, publish 12, lookup 4, execute 4, verify 1 |
+
+Environment: Python 3.14.6, macOS-26.4.1-arm64-arm-64bit-Mach-O, langgraph 1.2.12, langgraph-checkpoint-sqlite 3.1.1; recorded 2026-09-24.
 
 What this does and does not show:
 
