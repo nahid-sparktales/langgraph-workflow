@@ -63,11 +63,14 @@ test in this repository ran and passed; results and commands are in
 
 ## Blocked or not verified
 
-- **Linux targets** (`linux-x86_64`, `linux-arm64`): dependency resolution to
-  binary wheels verified; nothing executed on Linux.
-- **Python 3.11 and 3.13**: not run locally (CI matrix includes them; CI has
-  not run because the repository has no remote).
-- **CI workflow** (`.github/workflows/ci.yml`): written, never executed.
+- **Linux arm64**: dependency resolution to binary wheels verified; not
+  executed. Linux x86_64 runs in CI (package suite only, not inside a Locus
+  runtime package).
+- **CI** (GitHub Actions run 36053254108, commit `da6c1fe`): all 7 jobs
+  passed — pinned Locus resolution on Ubuntu with Python 3.10, 3.11, 3.12,
+  3.13, 3.14 and on macOS 15 with 3.14 (83 passed, 7 opt-in skips each;
+  packaging test passed on both 3.14 jobs), and the newest allowed versions
+  (`langgraph 1.2.12`) on Ubuntu 3.14.
 - **Signed/notarized macOS bundle**: the 8 added native libraries were not
   signed or notarized; no app build was made.
 - **Live providers, subscription sessions, paid accounts, remote runtime,
