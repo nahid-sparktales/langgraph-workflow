@@ -25,6 +25,15 @@ if status.pending_decision:           # e.g. plan approval
 Only host verification with receipts can yield `verified`; everything else
 ends honestly (`needs_review`, `uncertain`, `budget_exhausted`, …).
 
+## Use it in Locus
+
+This repository is a Locus plugin marketplace. In Locus open **Settings →
+Extensions → Marketplace**, add `nahid-sparktales/langgraph-workflow`, then
+**Review & install** *LangGraph Workflows*. The Locus agent drives each
+workflow through the plugin's MCP tools and you approve plans in a Locus
+prompt. See [docs/locus-plugin.md](docs/locus-plugin.md) for what it does and
+does not guarantee.
+
 ## Try it offline
 
 ```bash
@@ -47,7 +56,8 @@ restarts are real. They never touch a network, account, or Locus profile.
 - [Integration guide](docs/integration-guide.md) — writing a host, consuming a release in Locus, rollback
 - [Evaluation](docs/evaluation.md) — what fixtures measure and what they cannot
 - [Implementation status](docs/implementation-status.md) — implemented, tested, fixture-only, blocked, deferred
-- [Locus handoff](integrations/locus/README.md) — reference adapter, patch, harness, compatibility record
+- [Locus plugin](docs/locus-plugin.md) — install, tools, guarantees, limits
+- [Locus handoff](integrations/locus/README.md) — in-process reference adapter, patch, harness, compatibility record
 
 ## Requirements
 

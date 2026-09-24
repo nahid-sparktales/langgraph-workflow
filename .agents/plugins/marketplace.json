@@ -1,0 +1,11 @@
+{
+  "name": "langgraph-workflow",
+  "owner": {"name": "SparkTales Inc."},
+  "plugins": [
+    {
+      "name": "langgraph-workflow",
+      "source": {"source": "local", "path": "./plugin"},
+      "category": "Productivity"
+    }
+  ]
+}

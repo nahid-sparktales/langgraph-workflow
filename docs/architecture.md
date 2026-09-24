@@ -42,6 +42,9 @@ the nine-method port can use the same workflows.
 | `events.py` | Versioned event contract and redaction. |
 | `policy.py` | Graph limits and their intersection. |
 | `testing.py` | Durable fixture host, host contract suite, process-level CLI. |
+| `filechecks.py` | Workspace-relative file/JSON checks with traversal and symlink refusal; workspace snapshots and diffs. |
+| `agent_host.py` | `AgentHost`: jobs performed by an external agent that reports back; observed file changes; file-check verification. |
+| `mcp_server.py` | MCP server over `AgentHost` used by the Locus plugin (optional `mcp` extra); decisions via elicitation. |
 
 LangGraph's `Command`, `Send`, `interrupt`, state channels and stream chunks
 stay inside `executor.py`, `state.py` and `workflows/`.

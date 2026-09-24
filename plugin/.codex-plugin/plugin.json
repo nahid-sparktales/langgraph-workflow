@@ -1,0 +1,18 @@
+{
+  "name": "langgraph-workflow",
+  "version": "0.2.0",
+  "description": "Durable, verified workflows (verified change, read-only research) that the Locus agent drives step by step, with plan approval asked of you directly.",
+  "author": {"name": "SparkTales Inc.", "url": "https://github.com/nahid-sparktales/langgraph-workflow"},
+  "homepage": "https://github.com/nahid-sparktales/langgraph-workflow",
+  "repository": "https://github.com/nahid-sparktales/langgraph-workflow",
+  "license": "Apache-2.0",
+  "interface": {
+    "displayName": "LangGraph Workflows",
+    "shortDescription": "Durable, verified multi-step workflows with crash recovery and plan approval.",
+    "longDescription": "Runs LangGraph workflows as an MCP server. The Locus agent performs every job with its own tools and permissions and reports back; the plugin keeps durable state, detects file changes itself, verifies file and JSON acceptance checks, and asks you to approve plans through a Locus prompt. Command checks and human-review checks end in needs-review rather than being assumed to pass.",
+    "category": "Productivity",
+    "developerName": "SparkTales Inc."
+  },
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

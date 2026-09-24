@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "langgraph-workflow"
-version = "0.1.0"
+version = "0.2.0"
 description = "Host-agnostic LangGraph workflow executor that drives bounded jobs through an injected agent runtime."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -20,7 +20,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.12", "build>=1.2", "cryptography>=44"]
+# MCP server used by the Locus plugin (plugin/): python -m langgraph_workflow.mcp_server
+mcp = ["mcp>=2.0,<3"]
+dev = ["pytest>=8", "ruff>=0.12", "build>=1.2", "cryptography>=44", "mcp>=2.0,<3"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

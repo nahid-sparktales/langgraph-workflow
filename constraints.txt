@@ -10,3 +10,5 @@ langgraph==1.2.2
 langgraph-checkpoint==4.2.0
 langgraph-checkpoint-sqlite==3.1.1
 langgraph-sdk==0.3.15
+# Same MCP SDK as Locus's runtime lock.
+mcp==2.0.0

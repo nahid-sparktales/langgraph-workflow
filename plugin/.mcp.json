@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "workflows": {
+      "command": "/bin/sh",
+      "args": ["${PLUGIN_ROOT}/bin/launch"],
+      "env": {
+        "LGW_DATA": "${PLUGIN_DATA}",
+        "LGW_WORKSPACE": "${LOCUS_WORKSPACE}"
+      },
+      "protocol_mode": "legacy",
+      "share_workspace_root": true,
+      "startup_timeout_sec": 120,
+      "tool_timeout_sec": 600
+    }
+  }
+}

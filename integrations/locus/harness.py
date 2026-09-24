@@ -158,6 +158,74 @@ def report(host, executor, runs, reader, core, status, **extra):
     }
 
 
+def plugin(source: str) -> dict:
+    """Install the plugin from a marketplace with Locus's own extension manager,
+    start it with Locus's MCP runtime, and drive one verified change the way
+    the Locus agent would, answering the approval prompt as the user."""
+    from ollama_code.extensions import ExtensionManager
+    from ollama_code.mcp_runtime import MCPManager
+
+    workspace = HOME / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    manager = ExtensionManager(str(workspace), root=HOME / "extensions")
+    market = manager.add_marketplace(source)
+    trust = manager.inspect_catalog_plugin(market["id"], "langgraph-workflow")
+    installed = manager.install_plugin(market["id"], "langgraph-workflow",
+                                       expected_digest=trust["digest"])
+    prompts: list[str] = []
+    runtime: MCPManager | None = None
+
+    def emit(event: dict) -> None:
+        if event.get("type") == "mcp_input_required":  # Locus's native prompt
+            prompts.append(str(event.get("message", "")))
+            runtime.answer_elicitation(event["request_id"], "accept", {"choice": "approve"})
+
+    runtime = MCPManager(manager, emit=emit)
+    server_id = "plugin:langgraph-workflow:workflows"
+
+    def call(name: str, **arguments) -> dict:
+        text = runtime.call_tool(server_id, name, arguments)
+        try:
+            return json.JSONDecoder().raw_decode(text)[0]
+        except ValueError:
+            return {"error": text[:2000]}
+
+    try:
+        runtime.refresh(wait=True)
+        status = runtime.status(server_id) or {}
+        tools = sorted(t["name"] for t in runtime.available_tools())
+        steps = [call("workflow_start", workflow="verified_change",
+                      goal="Create result.txt containing done", checks=[CHECK])]
+        while steps[-1].get("status") == "waiting_for_job":
+            job = steps[-1]["jobs"][0]
+            result = {"inspect": {"summary": "empty workspace"},
+                      "plan": {"plan": {"steps": [{"title": "Create result.txt"}]}},
+                      "write": {"summary": "created result.txt"}}[job["kind"]]
+            if job["kind"] == "write":  # the agent's own tool call in real use
+                (workspace / "result.txt").write_text("done\n")
+            steps.append(call("workflow_report", attempt_id=steps[0]["attempt_id"],
+                              operation_id=job["operation_id"], outcome="completed",
+                              result=result))
+    finally:
+        runtime.close()
+    return {
+        "marketplace": {k: market.get(k) for k in ("id", "kind", "source", "error")},
+        "trust": {"digest": trust["digest"],
+                  "mcp_servers": [{k: s.get(k) for k in ("id", "command", "args",
+                                                         "protocol_mode")}
+                                  for s in trust.get("plugin", trust).get("mcp_servers", [])],
+                  "skills": [k.get("id") for k in trust.get("plugin", trust).get("skills", [])],
+                  "unsupported": trust.get("plugin", trust).get("unsupported")},
+        "installed": {k: installed.get(k) for k in ("id", "version", "digest")},
+        "server_state": status.get("state"), "server_error": status.get("summary"),
+        "tools": tools, "prompts": prompts,
+        "statuses": [(s.get("status"), s.get("phase"), [j["kind"] for j in s.get("jobs", [])])
+                     for s in steps],
+        "final": steps[-1], "result_file": (workspace / "result.txt").read_text()
+        if (workspace / "result.txt").exists() else None,
+    }
+
+
 def main() -> dict:
     if SCENARIO == "change-start":
         host, ex, runs, reader, core = build()
@@ -205,6 +273,8 @@ def main() -> dict:
         status = ex.start(change_request(reviewer=True,
                                          plan={"steps": [{"title": "Create result.txt"}]}))
         return report(host, ex, runs, reader, core, status)
+    if SCENARIO == "plugin":
+        return plugin(sys.argv[3])
     if SCENARIO == "contract":
         host, ex, runs, reader, core = build(plan_approval=False)
         request = WorkflowRequest.from_dict(change_request(attempt_id="contract-1"))

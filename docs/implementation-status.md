@@ -52,6 +52,24 @@ test in this repository ran and passed; results and commands are in
   `--only-binary=:all:`) resolving `langgraph 1.2.2` without moving any pin;
   edition audit of all added files with zero wallet matches.
 
+## Locus plugin (0.2.0)
+
+- Tested against real Locus code (disposable checkout, deterministic): Locus's
+  `ExtensionManager` adds the marketplace, shows the trust review, installs
+  with digest verification; Locus's `MCPManager` starts the plugin (launcher
+  first run builds the venv), lists the four tools, and a verified change
+  completes with the plan approval answered through Locus's
+  `mcp_input_required` prompt path.
+- Tested over real stdio with `mcp.Client` (legacy protocol): elicited
+  approval, declined-then-answered decision, server restart, forged
+  operation ids.
+- `AgentHost`: read-only violations, no-progress, single-use reports,
+  parallel investigations reported one at a time, cancellation, command
+  checks ending in `needs_review`.
+- Not verified: installing through the Locus app UI by hand, a real model
+  following the skill, Linux, and first-run installs on slow networks
+  (120-second startup limit).
+
 ## Fixture-only (not exercised against Locus)
 
 - Cancellation of an active writer and queued parallel jobs, workspace

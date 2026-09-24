@@ -23,7 +23,7 @@ from .events import EVENT_SCHEMA, WorkflowEvent
 from .executor import DecisionRejected, IncompatibleAttempt, WorkflowExecutor
 from .ports import CAPABILITIES, WorkflowHost
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "CAPABILITIES", "CONTRACT_VERSION", "EVENT_SCHEMA", "STATE_SCHEMA_VERSION", "Admission",

@@ -18,9 +18,9 @@ pytestmark = [pytest.mark.locus, pytest.mark.skipif(
     not PYTHON, reason="LOCUS_PYTHON not set (see integrations/locus)")]
 
 
-def harness(home, scenario):
-    done = subprocess.run([PYTHON, str(HARNESS), str(home), scenario], capture_output=True,
-                          text=True, timeout=300)
+def harness(home, scenario, *extra):
+    done = subprocess.run([PYTHON, str(HARNESS), str(home), scenario, *extra],
+                          capture_output=True, text=True, timeout=600)
     assert done.returncode == 0, done.stderr[-4000:]
     return json.loads(done.stdout.strip().splitlines()[-1])
 
@@ -84,3 +84,19 @@ def test_locus_adapter_satisfies_host_contract(tmp_path):
     results = harness(tmp_path, "contract")["contract"]
     assert all(v == "pass" for v in results.values()), results
     assert len(results) == 17
+
+
+def test_plugin_installs_from_marketplace_and_runs_in_locus(tmp_path):
+    # Local folder by default; LGW_PLUGIN_SOURCE=owner/repo tests the GitHub download.
+    source = os.environ.get("LGW_PLUGIN_SOURCE", str(Path(__file__).parents[2]))
+    report = harness(tmp_path, "plugin", source)
+    assert report["marketplace"]["error"] is None
+    assert report["installed"]["digest"] == report["trust"]["digest"]
+    assert report["trust"]["unsupported"] == []
+    assert report["server_state"] == "connected", report["server_error"]
+    assert report["tools"] == ["workflow_cancel", "workflow_report", "workflow_start",
+                               "workflow_status"]
+    assert report["prompts"] == ["Approve this plan?\n\nCreate result.txt"]  # Locus's prompt
+    assert [s[2] for s in report["statuses"]] == [["inspect"], ["plan"], ["write"], []]
+    assert report["final"]["status"] == "verified"
+    assert report["result_file"] == "done\n"
