@@ -225,7 +225,8 @@ class WorkflowExecutor:
             phase=values.get("phase", ""), blocker=blocker, detail=values.get("detail", ""),
             pending_decision=pending, jobs={k: v["status"] for k, v in jobs.items()},
             verification=values.get("verification"), repair_rounds=values.get("repair_rounds", 0),
-            result=values.get("result", {}), usage=usage,
+            result=values.get("result", {}), usage=usage, goal=request.get("goal", ""),
+            updated_at=float(attempt.get("updated_at") or 0.0),
         )
 
     def close(self) -> None:

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "title": "LangGraph Workflows settings",
+  "additionalProperties": false,
+  "properties": {
+    "plan_approval": {"type": "boolean", "default": true, "title": "Ask me to approve plans", "description": "Before any file changes, show the plan and wait for your approval."},
+    "conflict_approval": {"type": "boolean", "default": true, "title": "Ask me when research disagrees", "description": "When investigations find conflicting answers, let you choose which to trust. Otherwise conflicts are reported in the result."},
+    "reviewer_default": {"type": "boolean", "default": false, "title": "Add a review step by default", "description": "After checks pass, the agent reviews the change against the plan before it is marked done."},
+    "max_repair_rounds": {"type": "integer", "minimum": 0, "maximum": 2, "default": 2, "title": "Repair attempts", "description": "How many times the agent may fix failing checks before stopping for your review."},
+    "max_review_rounds": {"type": "integer", "minimum": 1, "maximum": 2, "default": 2, "title": "Review rounds", "description": "How many review passes are allowed when a reviewer requests changes."},
+    "max_jobs": {"type": "integer", "minimum": 3, "maximum": 12, "default": 12, "title": "Steps per workflow", "description": "Upper limit on agent jobs in one workflow, so a run can never grow without bound."},
+    "max_investigations": {"type": "integer", "minimum": 1, "maximum": 4, "default": 4, "title": "Research questions", "description": "Most independent questions one research workflow may investigate."},
+    "max_parallel_reads": {"type": "integer", "minimum": 1, "maximum": 2, "default": 2, "title": "Parallel investigations", "description": "How many read-only investigations may be open at the same time."},
+    "keep_finished_days": {"type": "integer", "minimum": 0, "maximum": 365, "default": 30, "title": "Keep finished runs (days)", "description": "Remove the saved step history of finished runs after this many days. 0 keeps them forever."}
+  }
+}

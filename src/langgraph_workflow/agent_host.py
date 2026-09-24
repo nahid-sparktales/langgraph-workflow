@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -60,10 +61,12 @@ class ReportRejected(ValueError):
 
 class AgentHost:
     def __init__(self, data_dir: str | Path, workspace: str | Path, *,
-                 actor: str = "user") -> None:
+                 actor: str = "user", policy: Callable[[], dict] | None = None) -> None:
         self.workspace = Path(workspace).resolve()
         self.db_path = Path(data_dir) / "agent-host.sqlite3"
         self.actor = actor
+        # Current user settings: approval policy and limits for new attempts.
+        self.policy = policy or dict
         self.db_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         with self._db() as db:
             db.executescript(_SCHEMA)
@@ -87,8 +90,11 @@ class AgentHost:
     def admit(self, request: WorkflowRequest) -> Admission:
         if not self.workspace.is_dir():
             return Admission(False, reason="workspace_missing")
-        return Admission(True, policy_ref=self.policy_ref(), plan_approval=True,
-                         conflict_approval=True)
+        policy = self.policy()
+        return Admission(True, policy_ref=self.policy_ref(),
+                         plan_approval=bool(policy.get("plan_approval", True)),
+                         conflict_approval=bool(policy.get("conflict_approval", True)),
+                         limits=dict(policy.get("limits", {})))
 
     def revalidate(self, request: WorkflowRequest, policy_ref: str) -> Admission:
         if policy_ref != self.policy_ref():

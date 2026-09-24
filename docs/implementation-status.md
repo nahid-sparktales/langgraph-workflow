@@ -70,6 +70,24 @@ test in this repository ran and passed; results and commands are in
   following the skill, Linux, and first-run installs on slow networks
   (120-second startup limit).
 
+## Workflows window (0.3.0)
+
+- Locus side lives on a local, unpushed Locus branch (`claude/plugin-panels`):
+  manifest parsing and validation of `locus.panels`, settings API with schema
+  validation and revision checks, panel-only tools hidden from agents and
+  callable over REST, and the native window (WKWebView, `locus-screen://`
+  scheme). Tested with Locus's Python suite and Swift unit tests
+  (`PluginPanelTests`, `AgentWorldTests`, `ExtensionsModelTests`,
+  `SocialStudioTests`).
+- Plugin side: `workflow_overview`, `workflow_run` and `workflow_decide` over
+  real stdio, saved settings applied to new runs, schema defaults equal to the
+  server's.
+- UI checked in a browser against a fake bridge
+  (`tools/panel-preview/`): light and dark, the 760 px minimum window width,
+  approve flow, compose, settings save and reset.
+- Not verified: the window opened inside a running Locus app by hand, and
+  VoiceOver.
+
 ## Fixture-only (not exercised against Locus)
 
 - Cancellation of an active writer and queued parallel jobs, workspace

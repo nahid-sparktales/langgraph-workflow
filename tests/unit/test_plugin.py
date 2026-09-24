@@ -10,6 +10,8 @@ import subprocess
 import zipfile
 from pathlib import Path
 
+import pytest
+
 import langgraph_workflow
 
 ROOT = Path(__file__).parents[2]
@@ -28,8 +30,22 @@ def test_manifest_marketplace_and_mcp_config():
     assert server["command"] == "/bin/sh"  # no reliance on a preserved exec bit
     assert server["protocol_mode"] == "legacy"  # elicitation needs the back-channel
     assert server["share_workspace_root"] is True
+    [panel] = manifest["locus"]["panels"]
+    assert (PLUGIN / panel["entrypoint"]).is_file()
+    assert set(panel["capabilities"]) == {"plugin.settings", "plugin.tools", "chat.compose"}
+    assert panel["tools"] == ["workflow_decide"]  # hidden from agents by Locus
     skill = (PLUGIN / "skills/langgraph-workflow/SKILL.md").read_text()
     assert re.match(r"---\nname: langgraph-workflow\ndescription: .+\n---\n", skill)
+
+
+def test_settings_schema_matches_server_defaults():
+    pytest.importorskip("mcp")
+    from langgraph_workflow.mcp_server import SETTINGS
+
+    manifest = json.loads((PLUGIN / ".codex-plugin/plugin.json").read_text())
+    schema = json.loads((PLUGIN / manifest["locus"]["panels"][0]["settings_schema"]).read_text())
+    assert schema["additionalProperties"] is False
+    assert {k: v["default"] for k, v in schema["properties"].items()} == SETTINGS
 
 
 def test_vendored_wheel_matches_source_and_checksum():

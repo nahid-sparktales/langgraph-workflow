@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LangGraph Workflows</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="bar">
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 36 20" aria-hidden="true">
+      <path d="M3 10h30" class="mark-line"/>
+      <circle cx="4" cy="10" r="3.2" class="mark-done"/>
+      <circle cx="18" cy="10" r="3.2" class="mark-done"/>
+      <rect x="28.2" y="6.2" width="7.6" height="7.6" rx="1.4" transform="rotate(45 32 10)" class="mark-you"/>
+    </svg>
+    <div>
+      <h1>LangGraph Workflows</h1>
+      <p id="project" class="subtle"></p>
+    </div>
+  </div>
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button type="button" role="tab" id="tab-runs" aria-controls="view-runs" aria-selected="true">Runs<span id="needs-count" class="badge" hidden></span></button>
+    <button type="button" role="tab" id="tab-new" aria-controls="view-new" aria-selected="false" tabindex="-1">New workflow</button>
+    <button type="button" role="tab" id="tab-settings" aria-controls="view-settings" aria-selected="false" tabindex="-1">Settings</button>
+  </nav>
+</header>
+
+<div id="offline" class="notice" hidden>Open this window from Locus: Work → LangGraph Workflows.</div>
+
+<main>
+  <section id="view-runs" class="view runs" role="tabpanel" aria-labelledby="tab-runs">
+    <aside class="list" aria-label="Workflow runs">
+      <div id="run-list"></div>
+    </aside>
+    <article id="run-detail" class="detail" tabindex="-1"></article>
+  </section>
+
+  <section id="view-new" class="view compose" role="tabpanel" aria-labelledby="tab-new" hidden>
+    <form id="compose" class="compose-form" novalidate>
+      <fieldset class="lines">
+        <legend class="section-title">What should happen?</legend>
+        <label class="line-card change">
+          <input type="radio" name="workflow" value="verified_change" checked>
+          <span class="line-glyph" aria-hidden="true"><i></i><i></i><b></b><i></i><i></i></span>
+          <span class="line-name">Make a verified change</span>
+          <span class="line-text">The agent plans, you approve, it edits files, and checks prove the result.</span>
+        </label>
+        <label class="line-card research">
+          <input type="radio" name="workflow" value="research">
+          <span class="line-glyph" aria-hidden="true"><i></i><i></i><i></i><b></b><i></i></span>
+          <span class="line-name">Research a question</span>
+          <span class="line-text">Read-only investigations, compared side by side, then one answer with sources.</span>
+        </label>
+      </fieldset>
+
+      <div class="field">
+        <label for="goal" class="section-title">Describe the goal</label>
+        <textarea id="goal" rows="3" maxlength="4000" required></textarea>
+        <p class="error" id="goal-error" hidden>Describe what you want done.</p>
+      </div>
+
+      <div class="field only-change">
+        <p class="section-title" id="checks-title">Done when…</p>
+        <p class="hint">Each check is verified on your files. The agent saying it's done never counts.</p>
+        <div id="checks" aria-labelledby="checks-title"></div>
+        <button type="button" class="quiet" id="add-check">Add a check</button>
+      </div>
+
+      <div class="field only-research">
+        <p class="section-title" id="questions-title">Questions to investigate</p>
+        <p class="hint">Independent questions run as separate read-only investigations. Leave empty to investigate the goal as one question.</p>
+        <div id="questions" aria-labelledby="questions-title"></div>
+        <button type="button" class="quiet" id="add-question">Add a question</button>
+        <label class="inline-field" for="deliverable">Save the answer to a file (optional)
+          <input id="deliverable" type="text" placeholder="notes/answer.md" autocomplete="off" spellcheck="false">
+        </label>
+      </div>
+
+      <div class="field only-change">
+        <details id="plan-box">
+          <summary>I already have a plan</summary>
+          <label for="plan" class="hint">One step per line. You'll still approve it before anything changes.</label>
+          <textarea id="plan" rows="4" maxlength="4000"></textarea>
+        </details>
+        <label class="switch-row">
+          <input type="checkbox" id="reviewer" role="switch">
+          <span><strong>Add a review step</strong><span class="hint">After checks pass, the agent reviews the change against the plan.</span></span>
+        </label>
+      </div>
+
+      <div class="field">
+        <p class="section-title">What the agent will receive</p>
+        <pre id="preview" class="preview" aria-live="polite"></pre>
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="primary" id="draft">Draft in chat</button>
+        <p class="hint">Opens a new Locus chat with this request drafted. Review it, then press Send.</p>
+      </div>
+    </form>
+  </section>
+
+  <section id="view-settings" class="view settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+    <form id="settings" class="settings-form" novalidate>
+      <div id="settings-fields"><p class="subtle">Loading settings…</p></div>
+      <div class="actions sticky">
+        <button type="submit" class="primary" id="save-settings" disabled>Save settings</button>
+        <button type="button" class="quiet" id="reset-settings">Reset to defaults</button>
+        <p class="hint">Changes apply to workflows you start after saving.</p>
+      </div>
+    </form>
+  </section>
+</main>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script src="app.js"></script>
+</body>
+</html>

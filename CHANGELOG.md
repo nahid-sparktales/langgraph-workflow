@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0 — 2026-09-24
+
+- Workflows window for Locus builds with plugin panels (`locus.panels` in the
+  plugin manifest, `plugin/ui/`): follow runs on a step route, approve plans
+  and answer conflicts, draft new workflows into a chat, and edit settings.
+  Released Locus ignores it.
+- Settings (`plugin/settings.schema.json`, stored by Locus as
+  `locus-settings.json`): plan and conflict approval, default review step,
+  limits, and pruning of finished runs after N days.
+- MCP tools `workflow_overview` and `workflow_run` (read-only), and
+  `workflow_decide`, registered only when Locus hides it from agents
+  (`LOCUS_PANEL_TOOLS`).
+- `AttemptStatus` gains `goal` and `updated_at`; `CheckpointStore.attempts()`
+  lists recent attempts.
+
 ## 0.2.0 — 2026-09-24
 
 - Locus plugin (`plugin/`, marketplace in `.agents/plugins/marketplace.json`):

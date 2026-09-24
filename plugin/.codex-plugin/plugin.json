@@ -1,8 +1,11 @@
 {
   "name": "langgraph-workflow",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Durable, verified workflows (verified change, read-only research) that the Locus agent drives step by step, with plan approval asked of you directly.",
-  "author": {"name": "SparkTales Inc.", "url": "https://github.com/nahid-sparktales/langgraph-workflow"},
+  "author": {
+    "name": "SparkTales Inc.",
+    "url": "https://github.com/nahid-sparktales/langgraph-workflow"
+  },
   "homepage": "https://github.com/nahid-sparktales/langgraph-workflow",
   "repository": "https://github.com/nahid-sparktales/langgraph-workflow",
   "license": "Apache-2.0",
@@ -14,5 +17,24 @@
     "developerName": "SparkTales Inc."
   },
   "skills": "./skills/",
-  "mcpServers": "./.mcp.json"
+  "mcpServers": "./.mcp.json",
+  "locus": {
+    "panels": [
+      {
+        "id": "workflows",
+        "title": "LangGraph Workflows",
+        "entrypoint": "./ui/index.html",
+        "version": 1,
+        "capabilities": [
+          "plugin.settings",
+          "plugin.tools",
+          "chat.compose"
+        ],
+        "tools": [
+          "workflow_decide"
+        ],
+        "settings_schema": "./settings.schema.json"
+      }
+    ]
+  }
 }

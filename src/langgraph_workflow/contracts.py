@@ -404,3 +404,5 @@ class AttemptStatus(_Record):
     repair_rounds: int = 0
     result: dict = field(default_factory=dict)
     usage: dict = field(default_factory=dict)
+    goal: str = ""
+    updated_at: float = 0.0

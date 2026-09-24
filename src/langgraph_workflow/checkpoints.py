@@ -213,6 +213,14 @@ class CheckpointStore:
             ).fetchone()
         return dict(row) if row else None
 
+    def attempts(self, limit: int = 50) -> list[dict]:
+        """Most recently updated attempts first."""
+        self._ensure_open()
+        with self._side() as side:
+            rows = side.execute("SELECT * FROM lgw_attempts ORDER BY updated_at DESC LIMIT ?",
+                                (limit,)).fetchall()
+        return [dict(row) for row in rows]
+
     def set_status(self, attempt_id: str, status: str) -> None:
         with self._side() as side:
             side.execute(

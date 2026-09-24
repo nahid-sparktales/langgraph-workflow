@@ -174,11 +174,18 @@ def plugin(source: str) -> dict:
                                        expected_digest=trust["digest"])
     prompts: list[str] = []
     runtime: MCPManager | None = None
+    answer = {"action": "accept"}
 
     def emit(event: dict) -> None:
         if event.get("type") == "mcp_input_required":  # Locus's native prompt
             prompts.append(str(event.get("message", "")))
-            runtime.answer_elicitation(event["request_id"], "accept", {"choice": "approve"})
+            runtime.answer_elicitation(event["request_id"], answer["action"],
+                                       {"choice": "approve"})
+
+    window = None
+    if hasattr(manager, "plugin_settings"):  # a Locus build with plugin panels
+        window = {"panels": [{k: p[k] for k in ("id", "capabilities", "tools")}
+                             for p in installed.get("panels") or []]}
 
     runtime = MCPManager(manager, emit=emit)
     server_id = "plugin:langgraph-workflow:workflows"
@@ -206,6 +213,25 @@ def plugin(source: str) -> dict:
             steps.append(call("workflow_report", attempt_id=steps[0]["attempt_id"],
                               operation_id=job["operation_id"], outcome="completed",
                               result=result))
+        if window is not None:
+            # What the window does: the user declined the chat prompt, then
+            # approves from the window through the panel-only tool.
+            answer["action"] = "decline"
+            settings = manager.plugin_settings(installed["id"])
+            saved = manager.set_plugin_settings(installed["id"], {"reviewer_default": True},
+                                                expected_revision=settings["revision"])
+            window |= {"default_values": settings["values"], "saved_values": saved["values"]}
+            waiting = call("workflow_start", workflow="verified_change", goal="Second change",
+                           checks=[CHECK], plan_steps=["Touch result.txt"])
+            detail = call("workflow_run", attempt_id=waiting["attempt_id"])
+            decision = detail["decision"]
+            decided = call("workflow_decide", attempt_id=waiting["attempt_id"],
+                           decision_id=decision["decision_id"], revision=decision["revision"],
+                           digest=decision["digest"], choice="approve")
+            window |= {"overview_settings": call("workflow_overview")["settings"],
+                       "run_reviewer": detail["reviewer"],
+                       "decided": (decided.get("status"),
+                                   [j["kind"] for j in decided.get("jobs", [])])}
     finally:
         runtime.close()
     return {
@@ -223,6 +249,7 @@ def plugin(source: str) -> dict:
                      for s in steps],
         "final": steps[-1], "result_file": (workspace / "result.txt").read_text()
         if (workspace / "result.txt").exists() else None,
+        "window": window,
     }
 
 

@@ -1,8 +1,9 @@
 # Locus plugin
 
 The repository is a Locus plugin marketplace. Locus downloads it with Git,
-shows a trust review, and runs the workflows as an MCP server. No Locus code
-changes are needed.
+shows a trust review, and runs the workflows as an MCP server. The plugin
+works with released Locus as is; the optional [window](#the-workflows-window)
+needs a Locus build with plugin panels.
 
 ## Install
 
@@ -40,10 +41,55 @@ you ◀── plan approval / conflict choice (Locus prompt via MCP elicitation)
 | `workflow_report` | Report one job's outcome (`completed`, `failed`, `refused`) and result; returns the next job, a decision prompt, or the result. |
 | `workflow_status` | Current state; re-asks a pending decision. Read-only. |
 | `workflow_cancel` | Cancel; pending jobs are closed. |
+| `workflow_overview` | Recent runs across projects and the settings in effect. Read-only; used by the window. |
+| `workflow_run` | One run for display: steps, plan, pending decision and jobs, checks, activity. Read-only. |
+| `workflow_decide` | Answer a pending decision. Window only (see below). |
 
-There is deliberately no tool to answer a decision: plan approval and
-conflict resolution are asked through Locus's own input prompt
+The agent has no tool to answer a decision: plan approval and conflict
+resolution are asked through Locus's own input prompt
 (`mcp_input_required`), so the model cannot approve on your behalf.
+`workflow_decide` is registered only when Locus starts the server with
+`LOCUS_PANEL_TOOLS=workflow_decide`, which a panel-aware Locus sets after
+removing that tool from every agent's tool list; the window is then the only
+caller.
+
+## The workflows window
+
+With a Locus build that supports plugin panels (branch `claude/plugin-panels`
+in a local Locus worktree; not in released Locus yet), the plugin declares a
+window in `.codex-plugin/plugin.json` under `locus.panels`. Open it from
+**Agent World → Work → LangGraph Workflows** or from the plugin's row in
+**Settings → Extensions**. Older Locus versions ignore the declaration.
+
+- **Runs**: grouped into *Needs you*, *Running* and *Finished*. Each run
+  shows its route (Understand → Plan → Approve → Build → Check → Review →
+  Done, or Scope → Investigate → Compare → Synthesize → Check → Done), what
+  it is waiting for, the plan, the "Done when" checks with their evidence,
+  and recent activity. Approve or decline plans and pick conflict answers
+  right there; *Continue in chat* opens a Locus chat to hand the agent its
+  next job.
+- **New workflow**: pick *Make a verified change* or *Research a question*,
+  describe the goal, add checks or questions, and preview exactly what the
+  agent will receive. *Draft in chat* opens a new Locus chat with it
+  drafted; nothing runs until you press Send.
+- **Settings**: approvals, the default review step, limits and how long
+  finished runs are kept. Locus validates them against
+  `plugin/settings.schema.json` and stores them in the plugin's data folder
+  (`locus-settings.json`, mode 0600), where the server reads them for new
+  runs.
+
+The window is local HTML (`plugin/ui/`) in Locus's plugin web view: no
+network, no storage, `script-src 'self'`. It can only read and save this
+plugin's settings, call this plugin's tools, and draft a chat, each gated by
+a capability the trust review lists.
+
+To work on the UI without Locus, serve the repository and open
+`tools/panel-preview/index.html`, which fakes the Locus bridge with sample
+runs:
+
+```bash
+python3 -m http.server 8787
+```
 
 ## What is and is not guaranteed
 

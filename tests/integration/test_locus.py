@@ -94,9 +94,24 @@ def test_plugin_installs_from_marketplace_and_runs_in_locus(tmp_path):
     assert report["installed"]["digest"] == report["trust"]["digest"]
     assert report["trust"]["unsupported"] == []
     assert report["server_state"] == "connected", report["server_error"]
-    assert report["tools"] == ["workflow_cancel", "workflow_report", "workflow_start",
-                               "workflow_status"]
-    assert report["prompts"] == ["Approve this plan?\n\nCreate result.txt"]  # Locus's prompt
+    # workflow_decide is never an agent tool: released Locus does not start the
+    # server with it, and a panel-aware Locus hides it from agents.
+    assert report["tools"] == ["workflow_cancel", "workflow_overview", "workflow_report",
+                               "workflow_run", "workflow_start", "workflow_status"]
+    assert report["prompts"][0] == "Approve this plan?\n\nCreate result.txt"  # Locus's prompt
     assert [s[2] for s in report["statuses"]] == [["inspect"], ["plan"], ["write"], []]
     assert report["final"]["status"] == "verified"
     assert report["result_file"] == "done\n"
+    window = report["window"]
+    if window is None:
+        assert len(report["prompts"]) == 1
+    else:  # a Locus build with plugin panels: declined in chat, approved in the window
+        assert report["prompts"][1:] == ["Approve this plan?\n\nTouch result.txt"]
+        [panel] = window["panels"]
+        assert (panel["id"], panel["tools"]) == ("workflows", ["workflow_decide"])
+        assert set(panel["capabilities"]) == {"plugin.settings", "plugin.tools", "chat.compose"}
+        assert window["default_values"]["reviewer_default"] is False
+        assert window["saved_values"]["reviewer_default"] is True
+        assert window["overview_settings"]["reviewer_default"] is True
+        assert window["run_reviewer"] is True
+        assert window["decided"] == ["waiting_for_job", ["write"]]

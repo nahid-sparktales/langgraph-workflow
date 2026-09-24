@@ -16,7 +16,7 @@ CHECK = {"id": "result", "kind": "file_contains", "path": "result.txt", "value":
          "requirement": "result.txt says done"}
 
 
-def run(workspace: Path, data: Path, script, answers):
+def run(workspace: Path, data: Path, script, answers, env=None):
     asked = []
 
     async def elicitation(context, params):
@@ -31,7 +31,8 @@ def run(workspace: Path, data: Path, script, answers):
 
     async def main():
         params = StdioServerParameters(command=sys.executable,
-                                       args=["-m", "langgraph_workflow.mcp_server", str(data)])
+                                       args=["-m", "langgraph_workflow.mcp_server", str(data)],
+                                       env=env)
         # protocol_mode "legacy" is what the plugin's .mcp.json asks Locus for.
         client = Client(stdio_client(params), read_timeout_seconds=60, mode="legacy",
                         elicitation_callback=elicitation, list_roots_callback=roots,
@@ -128,3 +129,58 @@ def test_state_survives_a_server_restart(tmp_path):
 
     (_, final), _ = run(workspace, data, finish, [])
     assert (final["status"], final["blocker"]) == ("needs_review", "no_checks_declared")
+
+
+def test_window_tools_follow_saved_settings(tmp_path):
+    workspace, data = tmp_path / "ws", tmp_path / "data"
+    workspace.mkdir()
+    data.mkdir()
+    # Written by Locus from the window; ill-typed values fall back to defaults.
+    (data / "locus-settings.json").write_text(json.dumps(
+        {"reviewer_default": True, "max_jobs": 5, "plan_approval": "off"}))
+
+    async def script(call):
+        out = await call("workflow_start", workflow="verified_change", goal="g",
+                         checks=[CHECK], plan_steps=["Write result.txt"])
+        overview = await call("workflow_overview")
+        detail = await call("workflow_run", attempt_id=out["attempt_id"])
+        decision = detail["decision"]
+        stale = await call("workflow_decide", attempt_id=out["attempt_id"],
+                           decision_id=decision["decision_id"], revision=decision["revision"],
+                           digest="0" * 64, choice="approve")
+        after = await call("workflow_decide", attempt_id=out["attempt_id"],
+                           decision_id=decision["decision_id"], revision=decision["revision"],
+                           digest=decision["digest"], choice="approve")
+        return overview, detail, stale, after
+
+    (tools, (overview, detail, stale, after)), asked = run(
+        workspace, data, script, [None], env={"LOCUS_PANEL_TOOLS": "workflow_decide"})
+    assert tools["workflow_overview"].annotations.read_only_hint is True
+    assert tools["workflow_decide"].annotations.read_only_hint is False
+    assert len(asked) == 1  # declined in chat, answered in the window
+    settings = overview["settings"]
+    assert (settings["max_jobs"], settings["reviewer_default"], settings["plan_approval"]) == (
+        5, True, True)
+    [run_] = overview["runs"]
+    assert run_["needs_you"] and run_["status"] == "waiting_for_input"
+    assert detail["reviewer"] is True and detail["plan"] == ["Write result.txt"]
+    states = {step["id"]: step["state"] for step in detail["steps"]}
+    assert states["approve"] == "current" and states["review"] == "upcoming"
+    assert "error" in stale
+    assert after["status"] == "waiting_for_job" and after["jobs"][0]["kind"] == "write"
+    assert {step["id"]: step["state"] for step in after["steps"]}["build"] == "current"
+
+
+def test_plan_approval_can_be_turned_off(tmp_path):
+    workspace, data = tmp_path / "ws", tmp_path / "data"
+    workspace.mkdir()
+    data.mkdir()
+    (data / "locus-settings.json").write_text(json.dumps({"plan_approval": False}))
+
+    async def script(call):
+        return await call("workflow_start", workflow="verified_change", goal="g",
+                          checks=[CHECK], plan_steps=["Write result.txt"])
+
+    (tools, out), asked = run(workspace, data, script, [])
+    assert "workflow_decide" not in tools
+    assert asked == [] and out["jobs"][0]["kind"] == "write"
