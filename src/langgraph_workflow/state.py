@@ -168,6 +168,9 @@ def spec(state: dict, kind: str, access: str, key: str, instruction: str,
     )
 
 
+# Resumable stops: the node re-targets itself, so a resume re-queries the host.
+PARKING = ("uncertain", "waiting_for_capability", "budget_exhausted", "waiting_for_job")
+
 # Receipt status -> (attempt status, blocker) for outcomes that stop a workflow.
 STOPPING_RECEIPTS = {
     "denied": ("needs_review", "job_denied"),
@@ -176,7 +179,9 @@ STOPPING_RECEIPTS = {
     "busy": ("waiting_for_capability", "workspace_busy"),
     "uncertain": ("uncertain", "uncertain_action"),
     "admitted": ("uncertain", "uncertain_action"),
-    "running": ("uncertain", "uncertain_action"),
+    # A host that runs jobs asynchronously (e.g. an agent that reports back)
+    # returns "running"; the attempt parks until lookup shows an outcome.
+    "running": ("waiting_for_job", "job_in_progress"),
 }
 
 

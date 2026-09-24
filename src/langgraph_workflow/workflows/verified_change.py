@@ -22,6 +22,7 @@ from ..contracts import (
 )
 from ..policy import effective_limits
 from ..state import (
+    PARKING,
     BaseState,
     Runtime,
     bounded,
@@ -32,7 +33,6 @@ from ..state import (
 )
 
 DEFINITION_VERSION = "verified_change/1"
-PARKING = ("uncertain", "waiting_for_capability", "budget_exhausted")
 
 
 class State(BaseState, total=False):

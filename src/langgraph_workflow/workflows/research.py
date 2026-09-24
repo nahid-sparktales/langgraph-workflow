@@ -17,6 +17,7 @@ from langgraph.types import Command, Send, interrupt
 from ..contracts import DecisionResponse, PendingDecision, WorkflowRequest, digest
 from ..policy import effective_limits
 from ..state import (
+    PARKING,
     BaseState,
     Runtime,
     bounded,
@@ -27,7 +28,6 @@ from ..state import (
 )
 
 DEFINITION_VERSION = "research/1"
-PARKING = ("uncertain", "waiting_for_capability", "budget_exhausted")
 
 
 class State(BaseState, total=False):

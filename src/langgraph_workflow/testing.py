@@ -32,6 +32,7 @@ from .contracts import (
     digest,
 )
 from .events import WorkflowEvent
+from .filechecks import check_file, safe_path
 from .ports import CAPABILITIES
 
 CRASH_POINTS = ("before_admission", "after_admission", "during_action", "after_receipt")
@@ -67,17 +68,6 @@ DEFAULT_SCENARIO: dict[str, Any] = {
     "job_delay": 0.0,
     "forge_verification": False,
 }
-
-
-def safe_path(root: Path, relative: str) -> Path:
-    """Resolve a workspace-relative path; refuse traversal and symlink escape."""
-    candidate = Path(relative)
-    if candidate.is_absolute() or ".." in candidate.parts or not relative.strip():
-        raise PermissionError(f"unsafe path {relative!r}")
-    resolved = (root / candidate).resolve()
-    if resolved != root.resolve() and root.resolve() not in resolved.parents:
-        raise PermissionError(f"path escapes workspace {relative!r}")
-    return resolved
 
 
 class FixtureHost:
@@ -349,31 +339,7 @@ class FixtureHost:
         return VerificationReport(status, tuple(results), revision="fixture-revision-1")
 
     def _check(self, check: dict) -> tuple[str, str]:
-        kind = check.get("kind")
-        if kind == "human_review":
-            return "needs_review", "requires human review"
-        if kind not in ("file_exists", "file_contains", "json_value"):
-            return "unsupported", f"fixture host does not run {kind!r} checks"
-        try:
-            path = safe_path(self.workspace, str(check.get("path", "")))
-        except PermissionError as error:
-            return "denied", str(error)
-        if not path.is_file():
-            return "failed", "missing"
-        data = path.read_bytes()
-        fingerprint = digest(data.decode(errors="replace"))[:16]
-        if kind == "file_exists":
-            return "passed", fingerprint
-        if kind == "file_contains":
-            ok = str(check.get("value", "")) in data.decode(errors="replace")
-            return ("passed" if ok else "failed"), fingerprint
-        try:
-            value: Any = json.loads(data)
-            for part in str(check.get("pointer", "")).split("/")[1:]:
-                value = value[int(part)] if isinstance(value, list) else value[part]
-        except (ValueError, KeyError, IndexError, TypeError):
-            return "failed", fingerprint
-        return ("passed" if value == check.get("value") else "failed"), fingerprint
+        return check_file(self.workspace, check)
 
     # -- events ------------------------------------------------------------------
     def publish(self, event: WorkflowEvent) -> None:

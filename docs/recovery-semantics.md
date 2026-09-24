@@ -20,7 +20,8 @@ On (re-)entry `Runtime.run_job` first calls `host.lookup(operation_id)`:
 | Recorded outcome | Action |
 | --- | --- |
 | none | submit (`execute`) |
-| `admitted` (never started), `running` | submit: the host starts or reattaches |
+| `admitted` (never started) | submit: the host starts it |
+| `running` (host still working, e.g. an agent that has not reported) | park as `waiting_for_job`; continue when `lookup` shows an outcome |
 | `budget_exhausted`, `busy` (refused, never executed) | submit again: the host re-evaluates |
 | `settled`, `failed`, `denied`, `cancelled` | reuse; never execute again |
 | `uncertain` (started, outcome unobserved) | park with `uncertain_action`; never replay |

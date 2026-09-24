@@ -40,6 +40,7 @@ STATUSES = (
     "waiting_for_capability",
     "budget_exhausted",
     "uncertain",
+    "waiting_for_job",  # a host-run job (e.g. by an agent) has not reported yet
     "cancel_requested",
     "cancelled",
     "failed",

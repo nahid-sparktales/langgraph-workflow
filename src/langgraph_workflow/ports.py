@@ -53,7 +53,12 @@ class WorkflowHost(Protocol):
 
     # -- bounded jobs ----------------------------------------------------------
     def execute(self, spec: JobSpec) -> JobReceipt:
-        """Durably admit, authorize and run one bounded job; block until settled.
+        """Durably admit, authorize and run one bounded job.
+
+        Hosts that run jobs synchronously block until settled. Hosts whose
+        jobs complete elsewhere (an agent that reports back) return
+        ``running``; the attempt parks as ``waiting_for_job`` and continues
+        on resume once ``lookup`` shows the outcome.
 
         Idempotent by ``operation_id``: a known operation returns its recorded
         outcome, reattaches to in-flight work, or reports ``uncertain``. A

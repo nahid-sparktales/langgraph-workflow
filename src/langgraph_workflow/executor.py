@@ -31,10 +31,8 @@ from .contracts import (
 from .events import WorkflowEvent, make_event
 from .policy import effective_limits
 from .ports import WorkflowHost
-from .state import Runtime
+from .state import PARKING, Runtime
 from .workflows import WORKFLOWS
-
-PARKING = ("uncertain", "waiting_for_capability", "budget_exhausted")
 
 
 class DecisionRejected(ValueError):
@@ -298,8 +296,10 @@ class WorkflowExecutor:
         seed = values or graph_input
         graph = self._graph(seed["request"]["workflow"])
         config = self._config(seed)
-        stream = graph.stream(graph_input, config, stream_mode=["custom", "checkpoints"],
+        stream = graph.stream(graph_input, config,
+                              stream_mode=["custom", "updates", "checkpoints"],
                               durability="sync")
+        parked = False
         try:
             # Context-local: suppresses LangSmith tracing even when ambient
             # environment variables would enable it, without touching them.
@@ -308,13 +308,20 @@ class WorkflowExecutor:
                     if mode == "custom":
                         self._publish(chunk)
                         continue
+                    if mode == "updates":
+                        # Park only when a node wrote a parking status in this
+                        # step; a stale one left in state (e.g. while parallel
+                        # branches re-query the host) must not stop the run.
+                        for update in chunk.values():
+                            if isinstance(update, dict) and "status" in update:
+                                parked = update["status"] in PARKING
+                        continue
                     self.store.renew(attempt_id, self.lease_seconds)
                     checkpoint_id = chunk["config"]["configurable"]["checkpoint_id"]
                     if checkpoint_id == starting or chunk["metadata"].get("source") == "input":
                         continue
-                    status = (chunk.get("values") or {}).get("status")
-                    if status in PARKING and chunk.get("next"):
-                        break  # resumable stop: the same node re-checks on resume
+                    if parked and chunk.get("next"):
+                        break  # resumable stop: the parked node re-checks on resume
                     if self.store.controls(attempt_id)["pause"] and chunk.get("next"):
                         values = chunk.get("values") or {}
                         self._publish(make_event("workflow.paused", values["request"],
