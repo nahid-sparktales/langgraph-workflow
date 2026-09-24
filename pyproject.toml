@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,8 +8,8 @@ version = "0.1.0"
 description = "Host-agnostic LangGraph workflow executor that drives bounded jobs through an injected agent runtime."
 readme = "README.md"
 requires-python = ">=3.10"
-# No license is declared yet: the repository owner has not chosen one.
-# See docs/implementation-status.md before distributing.
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 dependencies = [
     # 1.2.2 is the newest release whose langgraph-sdk range (<0.4) does not cap
     # websockets below 17; Locus pins websockets==17.0. Newer 1.2.x resolve in

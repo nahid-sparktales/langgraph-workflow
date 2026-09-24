@@ -1,0 +1,9 @@
+langgraph-workflow
+Copyright 2026 SparkTales Inc.
+
+This product includes software developed at SparkTales Inc.
+
+langgraph-workflow depends on third-party Python packages (LangGraph,
+LangChain Core, LangSmith and their dependencies) that are installed
+separately and remain under their own licenses. None of them are copied into
+this repository or its wheel.

@@ -61,5 +61,5 @@ newest allowed versions so you can see when upgrading becomes safe.
 
 ## License
 
-Not yet chosen by the repository owner; no license is granted. Decide before
-distributing or vendoring into Locus (Apache-2.0).
+Apache License 2.0, the same license as Locus. Copyright 2026 SparkTales Inc.
+See [LICENSE](LICENSE) and [NOTICE](NOTICE).

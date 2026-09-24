@@ -77,7 +77,6 @@ test in this repository ran and passed; results and commands are in
   SSH**: not exercised. No paid or external action was performed.
 - **Native Swift UI**: no Swift build or test ran; `workflow_event`
   presentation does not exist yet.
-- **License**: none chosen by the owner; required before distribution.
 - **`pip-audit`** of the added dependencies: not run.
 
 ## Deferred (by design for the first release or to Prompt 2)
