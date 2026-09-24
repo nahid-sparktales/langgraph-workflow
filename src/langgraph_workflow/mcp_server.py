@@ -21,6 +21,7 @@ from urllib.parse import unquote, urlparse
 
 import mcp_types
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.shared.message import ServerMessageMetadata
 from mcp_types import ToolAnnotations
 from pydantic import create_model
@@ -70,7 +71,7 @@ class Workspaces:
         if key not in self._open:
             workspace = self._paths().get(key)
             if workspace is None:
-                raise ValueError("unknown attempt_id")
+                raise ToolError("unknown attempt_id")
             root = self.data / "workspaces" / key
             host = AgentHost(root, workspace)
             self._open[key] = (host, WorkflowExecutor(host, root / "checkpoints.sqlite3"))
@@ -79,7 +80,7 @@ class Workspaces:
     def for_attempt(self, attempt_id: str) -> tuple[AgentHost, WorkflowExecutor]:
         match = _ATTEMPT.match(attempt_id)
         if not match:
-            raise ValueError("attempt_id must come from workflow_start")
+            raise ToolError("attempt_id must come from workflow_start")
         return self.get(match.group(1))
 
 
@@ -99,7 +100,7 @@ async def _workspace(ctx: Context) -> Path:
     fallback = os.environ.get("LGW_WORKSPACE", "")
     if fallback and not fallback.startswith("${") and Path(fallback).is_dir():
         return Path(fallback).resolve()
-    raise ValueError("no workspace: open a workspace in Locus, then try again")
+    raise ToolError("no workspace: open a workspace in Locus, then try again")
 
 
 class NoPrompt(Exception):
@@ -214,11 +215,11 @@ def build_server(data: Path) -> MCPServer:
         """Report the outcome of one job you performed, then get the next step."""
         host, executor = spaces.for_attempt(attempt_id)
         if not operation_id.startswith(attempt_id + "/"):
-            raise ValueError("operation_id does not belong to this attempt")
+            raise ToolError("operation_id does not belong to this attempt")
         try:
             host.report(operation_id, outcome, result, note)
         except ReportRejected as error:
-            raise ValueError(str(error)) from error
+            raise ToolError(str(error)) from error
         status = await asyncio.to_thread(executor.resume, attempt_id)
         return await advance(ctx, host, executor, status)
 
@@ -239,7 +240,7 @@ def build_server(data: Path) -> MCPServer:
         try:
             status = await asyncio.to_thread(executor.cancel, attempt_id)
         except DecisionRejected as error:
-            raise ValueError(error.code) from error
+            raise ToolError(error.code) from error
         return _view(host, status)
 
     return server
