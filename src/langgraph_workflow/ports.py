@@ -72,7 +72,12 @@ class WorkflowHost(Protocol):
     def verify(
         self, request: WorkflowRequest, checks: tuple, *, final: bool
     ) -> VerificationReport:
-        """Run declared checks through the host's verification machinery."""
+        """Run declared checks through the host's verification machinery.
+
+        With ``final=True`` the host may answer from existing evidence only
+        when it can prove that evidence current (same revision, requirements
+        and file fingerprints); otherwise it must run the checks again.
+        """
 
     # -- decisions and events --------------------------------------------------
     def authorize_decision(self, response: DecisionResponse) -> bool:

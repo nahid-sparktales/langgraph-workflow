@@ -42,12 +42,15 @@ class ScriptedReader:
     def __init__(self, responses: dict[str, list[dict]]) -> None:
         self.responses = responses
         self.calls: list[str] = []
+        self.on_review = None  # optional side effect to simulate an outside change
 
     def chat_stream(self, model, messages, tools=None, on_token=None, should_stop=None,
                     on_thinking=None, think=False, options=None):
         prompt = messages[-1]["content"]
         kind = prompt[1:prompt.index("]")]
         self.calls.append(kind)
+        if kind == "review" and self.on_review:
+            self.on_review()
         queue = self.responses[kind]
         payload = queue.pop(0) if len(queue) > 1 else queue[0]
         if kind == "investigate":
@@ -195,6 +198,12 @@ def main() -> dict:
                            "investigations": ["Which engine?", "Which journal mode?"],
                            "checks": [{"id": "notes", "kind": "file_exists",
                                        "path": "notes.md", "requirement": "notes exist"}]})
+        return report(host, ex, runs, reader, core, status)
+    if SCENARIO == "stale-final":
+        host, ex, runs, reader, core = build(plan_approval=False)
+        reader.on_review = lambda: (HOME / "workspace" / "result.txt").write_text("tampered\n")
+        status = ex.start(change_request(reviewer=True,
+                                         plan={"steps": [{"title": "Create result.txt"}]}))
         return report(host, ex, runs, reader, core, status)
     if SCENARIO == "contract":
         host, ex, runs, reader, core = build(plan_approval=False)

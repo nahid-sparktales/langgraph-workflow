@@ -132,3 +132,19 @@ def test_executor_status_for_unknown_attempt(make):
     with pytest.raises(KeyError):
         ex.status("missing")
     assert isinstance(ex, WorkflowExecutor)
+
+
+def test_one_executor_never_drives_an_attempt_twice(make):
+    from langgraph_workflow import AttemptBusy
+    host, ex = make({"job_delay": 0.5, "writes": {"implement": {"result.txt": "done\n"}}})
+    result = {}
+    worker = threading.Thread(target=lambda: result.setdefault("s", ex.start(change_request())))
+    worker.start()
+    while not host.operations():
+        time.sleep(0.01)
+    with pytest.raises(AttemptBusy):
+        ex.resume("att-1")  # same instance, second thread
+    assert ex.cancel("att-1").status in ("running", "cancel_requested")  # flags only
+    worker.join(10)
+    assert result["s"].status == "cancelled"
+    assert host.effect_count() == len(host.operations())

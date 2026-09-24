@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import socket
 import sqlite3
+import threading
 import time
 import uuid
 from collections.abc import Iterator
@@ -131,6 +132,8 @@ class CheckpointStore:
         self.owner = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:12]}"
         self._conn: sqlite3.Connection | None = None
         self._saver: SqliteSaver | None = None
+        self._held: set[str] = set()  # attempts this store is driving right now
+        self._held_lock = threading.Lock()
 
     # -- lifecycle -------------------------------------------------------------
     @property
@@ -221,15 +224,24 @@ class CheckpointStore:
     @contextmanager
     def lease(self, attempt_id: str, seconds: float = 120.0) -> Iterator[None]:
         self._ensure_open()
-        self._acquire(attempt_id, seconds)
+        with self._held_lock:
+            # The database row cannot tell two threads of one owner apart.
+            if attempt_id in self._held:
+                raise AttemptBusy(f"attempt {attempt_id} is already running in this process")
+            self._held.add(attempt_id)
         try:
-            yield
+            self._acquire(attempt_id, seconds)
+            try:
+                yield
+            finally:
+                with self._side() as side:
+                    side.execute(
+                        "DELETE FROM lgw_leases WHERE attempt_id=? AND owner=?",
+                        (attempt_id, self.owner),
+                    )
         finally:
-            with self._side() as side:
-                side.execute(
-                    "DELETE FROM lgw_leases WHERE attempt_id=? AND owner=?",
-                    (attempt_id, self.owner),
-                )
+            with self._held_lock:
+                self._held.discard(attempt_id)
 
     def _acquire(self, attempt_id: str, seconds: float) -> None:
         host, now = socket.gethostname(), time.time()

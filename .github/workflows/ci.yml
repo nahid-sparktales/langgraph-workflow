@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-24.04]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        deps: [latest]
+        include:
+          # The resolution Locus's hash-locked runtime produces (websockets==17.0).
+          - os: macos-15
+            python: "3.14"
+            deps: locus-floor
+          - os: ubuntu-24.04
+            python: "3.10"
+            deps: locus-floor
+    runs-on: ${{ matrix.os }}
+    env:
+      LANGSMITH_TRACING: "false"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e '.[dev]'
+      - if: matrix.deps == 'locus-floor'
+        run: python -m pip install "langgraph==1.2.2" "langgraph-checkpoint==4.1.0" "langgraph-checkpoint-sqlite==3.1.0" "websockets==17.0"
+      - run: python -m ruff check src tests examples integrations
+      - run: python -m pytest -q
+      - run: python examples/demo.py --profile "$RUNNER_TEMP/demo"
+      - if: matrix.python == '3.14' && matrix.deps == 'latest'
+        run: LGW_PACKAGING=1 python -m pytest -q tests/integration/test_packaging.py

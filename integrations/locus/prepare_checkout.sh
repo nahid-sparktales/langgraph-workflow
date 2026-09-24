@@ -16,12 +16,12 @@ mkdir -p "$dest/checkout"
 GIT_OPTIONAL_LOCKS=0 git -C "$src" archive "$sha" | tar -x -C "$dest/checkout"
 cd "$dest/checkout"
 git init -q
-git add -A
+git add -A -f  # exported files are all tracked upstream, even if .gitignore matches
 git -c user.name=integration -c user.email=integration@localhost commit -qm "Locus $sha (tree export)"
 for patch in "$here"/patches/*.patch; do
   [ -e "$patch" ] || continue
   git apply "$patch"
-  git add -A
+  git add -A -f
   git -c user.name=integration -c user.email=integration@localhost commit -qm "$(basename "$patch")"
 done
 python3 -m venv "$dest/venv"

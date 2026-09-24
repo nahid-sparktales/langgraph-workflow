@@ -302,6 +302,14 @@ class LocusHost:
 
     # -- verification ------------------------------------------------------------
     def verify(self, request: WorkflowRequest, checks: tuple, *, final: bool) -> VerificationReport:
+        if final:
+            # Locus proves current evidence without re-running checks: the
+            # task revision, requirements and file fingerprints must match.
+            state, _ = self.store.completion(self.task_id)
+            value = self.store.get(self.task_id) or {}
+            if state == "passed" and {c["id"] for c in checks} <= {
+                    c["id"] for c in value.get("checks", ())}:
+                return self._report(value, value.get("evidence_ids", ()), "passed")
         verifier = TaskVerifier(self.store, self.task_id, self.core, self.run_id)
         try:
             value = verifier.verify([dict(c) for c in checks], self._decide)
@@ -309,9 +317,12 @@ class LocusHost:
             state = "stale" if "changed" in str(error) else "unsupported"
             return VerificationReport("needs_review", tuple(
                 CheckResult(c["id"], state, "", str(error)[:500]) for c in checks))
+        return self._report(value, value["evidence_ids"], value["verification_status"])
+
+    def _report(self, value: dict, evidence_ids, status: str) -> VerificationReport:
         receipts = {r["id"]: r for r in self.store.receipts(self.task_id)}
         results = []
-        for evidence_id in value["evidence_ids"]:
+        for evidence_id in evidence_ids:
             receipt = receipts[evidence_id]
             state = receipt["state"]
             if state == "needs_review" and str(receipt.get("detail", "")).startswith(
@@ -320,9 +331,9 @@ class LocusHost:
             results.append(CheckResult(receipt["check_id"], state,
                                        receipt["id"] if state in ("passed", "failed") else "",
                                        str(receipt.get("detail", ""))[:500]))
-        return VerificationReport(value["verification_status"] if value["verification_status"]
-                                  in ("passed", "failed", "needs_review") else "needs_review",
-                                  tuple(results), revision=str(value["revision"]))
+        return VerificationReport(status if status in ("passed", "failed", "needs_review")
+                                  else "needs_review", tuple(results),
+                                  revision=str(value.get("revision", "")))
 
     # -- events ------------------------------------------------------------------
     def publish(self, event: WorkflowEvent) -> None:

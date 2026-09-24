@@ -49,6 +49,14 @@ def test_verified_change_restart_between_approval_and_execution(tmp_path):
     assert len(second["attempts"]) == 3
 
 
+def test_file_changed_after_verification_is_not_verified(tmp_path):
+    report = harness(tmp_path, "stale-final")
+    status = report["status"]
+    assert (status["status"], status["blocker"]) == ("needs_review", "final_checks_failed")
+    assert report["result_file"] == "tampered\n"
+    assert report["task_completion"][0] == "failed"
+
+
 def test_denied_write_is_honest(tmp_path):
     report = harness(tmp_path, "change-deny-writes")
     assert (report["status"]["status"], report["status"]["blocker"]) == ("needs_review",

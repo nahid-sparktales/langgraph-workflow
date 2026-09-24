@@ -17,7 +17,7 @@ from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
 from langsmith.run_helpers import tracing_context
 
-from .checkpoints import CheckpointStore
+from .checkpoints import AttemptBusy, CheckpointStore
 from .contracts import (
     CONTRACT_VERSION,
     STATE_SCHEMA_VERSION,
@@ -117,8 +117,7 @@ class WorkflowExecutor:
             if not admission.admitted:
                 self.store.set_status(attempt_id, f"blocked:{admission.reason or 'revoked'}")
                 return self.status(attempt_id)
-        self.store.request(attempt_id, "pause", False)
-        return self._run(attempt_id, None)
+        return self._run(attempt_id, None, clear_pause=True)
 
     def decide(self, response: DecisionResponse | dict) -> AttemptStatus:
         """Apply one authenticated decision to the attempt's pending interrupt."""
@@ -150,6 +149,8 @@ class WorkflowExecutor:
             raise DecisionRejected("cancelled")
         if not self.host.authorize_decision(response):
             raise DecisionRejected("unauthorized")
+        if self.store.lease_holder(response.attempt_id) is not None:
+            raise AttemptBusy(f"attempt {response.attempt_id} is running; decide after it stops")
         request = WorkflowRequest.from_dict(values["request"])
         if not self.host.revalidate(request, values["admission"]["policy_ref"]).admitted:
             raise DecisionRejected("revoked")
@@ -173,8 +174,8 @@ class WorkflowExecutor:
         _not_on_event_loop()
         self.store.request(attempt_id, "cancel")
         quiescent = self.host.cancel(attempt_id)
-        if self.store.lease_holder(attempt_id) not in (None, self.store.owner):
-            return self.status(attempt_id)  # the owning executor routes to finish
+        if self.store.lease_holder(attempt_id) is not None:
+            return self.status(attempt_id)  # the running driver routes to finish
         values, snapshot = self._snapshot(attempt_id)
         with self.store.lease(attempt_id, self.lease_seconds):
             if values.get("phase") != "finish":
@@ -279,8 +280,10 @@ class WorkflowExecutor:
         snapshot = graph.get_state({"configurable": {"thread_id": attempt_id}})
         return snapshot.values or {}, snapshot
 
-    def _run(self, attempt_id: str, graph_input: Any) -> AttemptStatus:
+    def _run(self, attempt_id: str, graph_input: Any, clear_pause: bool = False) -> AttemptStatus:
         with self.store.lease(attempt_id, self.lease_seconds):
+            if clear_pause:  # only the owner may clear another caller's pause
+                self.store.request(attempt_id, "pause", False)
             self.store.set_status(attempt_id, "running")
             self._drive(attempt_id, graph_input)
         status = self.status(attempt_id)  # after release, so "paused" is visible
