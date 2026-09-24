@@ -144,7 +144,9 @@ def test_one_executor_never_drives_an_attempt_twice(make):
         time.sleep(0.01)
     with pytest.raises(AttemptBusy):
         ex.resume("att-1")  # same instance, second thread
-    assert ex.cancel("att-1").status in ("running", "cancel_requested")  # flags only
+    # Only flags + host.cancel here; the driving thread routes to finish. The
+    # host waits for quiescence, so the driver may already be done.
+    assert ex.cancel("att-1").status in ("running", "cancel_requested", "cancelled")
     worker.join(10)
     assert result["s"].status == "cancelled"
     assert host.effect_count() == len(host.operations())

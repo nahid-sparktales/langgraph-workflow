@@ -5,9 +5,14 @@ Source-verified against Locus **`5ac5b5b1c450eff0013ed6caae8c696dfc6fb0eb`**
 discovery reference `8cf6226d` differs from it only in two test files
 (`LocusTests/TranscriptFollowTests.swift`,
 `agent/tests/test_mcp_runtime_diagnostics.py`), so every production symbol
-below is identical at both revisions. The original checkout was read with
-`git archive`/`git diff`/`GIT_OPTIONAL_LOCKS=0 git status` only and remained
-clean (0 changed paths) before and after this work.
+below is identical at both revisions. During this work the original checkout was
+moved by another actor (reflog: `checkout main` + `merge origin/main`
+fast-forward at 23:20 -04:00) to `main` =
+`c2d0e75b4fc1dc3995966808e88e91e177457b25` (PR #126). That commit has the
+**same tree** (`d1529dd581548a2a4130e9acbb7bead77383e389`) as `5ac5b5b1`, so
+every result here applies to it unchanged. This work only read the
+repository (`git archive`, `git diff`, `GIT_OPTIONAL_LOCKS=0 git status`);
+its working tree had 0 changed paths before and after.
 
 ## Verified architectural facts
 

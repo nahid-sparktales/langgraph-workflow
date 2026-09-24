@@ -214,3 +214,11 @@ def test_transition_limit_from_host_admission_bounds_the_graph(make):
                      "limits": {"max_transitions": 10}})
     status = ex.start(change_request(reviewer=True))
     assert (status.status, status.blocker) == ("failed", "transition_limit")
+
+
+def test_unknown_usage_stays_unknown_and_is_not_authoritative(make):
+    host, ex = make({"writes": {"implement": {"result.txt": "done\n"}},
+                     "usage": {"coverage": "unknown"}})
+    status = ex.start(change_request(plan={"steps": [{"title": "w"}]}))
+    assert status.status == "verified"
+    assert status.usage == {"calls": 1, "coverage": "unknown", "authoritative": False}

@@ -233,7 +233,8 @@ class FixtureHost:
         receipt = JobReceipt(
             spec.operation_id, _job_id(spec.operation_id), status, spec.input_fingerprint,
             output=output, changed_files=tuple(changed), evidence=(f"fixture:{spec.kind}",),
-            usage={"calls": 1, "coverage": "known", "source": "fixture"},
+            usage={"calls": 1, "source": "fixture",
+                   **self.scenario.get("usage", {"coverage": "known"})},
             detail="fixture output" if status == "settled" else status,
         )
         with self._db() as db:
