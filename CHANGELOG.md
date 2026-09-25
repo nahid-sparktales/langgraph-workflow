@@ -16,6 +16,13 @@
 - MCP tools `workflow_definitions`, `workflow_definition` (read-only) and, for
   the window only, `workflow_save_definition`, `workflow_delete_definition`,
   `workflow_launch`, `workflow_dispatch`; `workflow_report` takes `claim`.
+- A step counts as handed over only after Locus confirms delivery
+  (`workflow_dispatch(delivered=true)`); a refused hand-off (agent busy) is
+  retried. Runs started from a window start only in that window's project,
+  and Locus refuses hand-offs into another project's chats.
+- Parallel branches reported by two chats at once no longer strand a run:
+  the second report waits for the first, and the window moves on any run
+  whose job was reported without a resume.
 
 ## 0.3.0 — 2026-09-24
 

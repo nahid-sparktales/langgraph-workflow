@@ -251,3 +251,59 @@ def test_drawn_workflow_from_the_window_with_a_hand_off(tmp_path):
     assert asked[0].startswith("Your approval is needed")
     assert done["jobs"][0]["inputs"]["title"] == "Build"  # unassigned: any chat does it
     assert "workflow_launch" not in tools and "workflow_dispatch" not in tools
+
+
+def test_hand_off_text_fits_locus_and_stranded_runs_move_on(tmp_path):
+    from langgraph_workflow.agent_host import AgentHost
+    from langgraph_workflow.contracts import digest
+    from langgraph_workflow.mcp_server import _handoff_text
+
+    spec = {"operation_id": "lgw-000000000000-0000000000/a-1", "access": "read",
+            "instruction": "i" * 4000,
+            "inputs": {"title": "A", "goal": "g" * 16000, "choices": ["x"] * 6,
+                       "context": [{"title": "t" * 120, "summary": "s" * 2000}] * 3}}
+    text = _handoff_text("lgw-000000000000-0000000000", spec, "claim-token")
+    assert len(text) < 16000 and "i" * 4000 in text and "claim-token" in text
+
+    workspace, data = tmp_path / "ws", tmp_path / "data"
+    workspace.mkdir()
+    fan = {"id": "fan", "title": "Fan", "nodes": [
+        {"id": "start", "type": "start"}, {"id": "split", "type": "split"},
+        {"id": "a", "type": "task", "title": "A", "access": "read", "instruction": "a"},
+        {"id": "b", "type": "task", "title": "B", "access": "read", "instruction": "b"},
+        {"id": "join", "type": "join"}, {"id": "end", "type": "end"}],
+        "edges": [{"from": "start", "to": "split"}, {"from": "split", "to": "a"},
+                  {"from": "split", "to": "b"}, {"from": "a", "to": "join"},
+                  {"from": "b", "to": "join"}, {"from": "join", "to": "end"}]}
+
+    async def launch(call):
+        await call("workflow_save_definition", definition=fan)
+        return await call("workflow_launch", workflow="custom", goal="g", definition_id="fan")
+
+    (_, run_), _ = run(workspace, data, launch, [], PANEL)
+    ops = {j["title"]: j["operation_id"] for j in run_["jobs"]}
+    # Both chats' reports were stored but neither resumed the run (the race
+    # where the second report finds the attempt busy).
+    host = AgentHost(data / "workspaces" / digest(str(workspace.resolve()))[:12], workspace)
+    host.report(ops["A"], "completed", {"summary": "a"})
+    host.report(ops["B"], "completed", {"summary": "b"})
+
+    async def window(call):
+        return await call("workflow_run", attempt_id=run_["attempt_id"])
+
+    (_, after), _ = run(workspace, data, window, [], PANEL)
+    assert (after["status"], after["blocker"]) == ("needs_review", "no_checks_run")
+    assert {s["id"]: s["state"] for s in after["steps"]}["a"] == "done"
+
+
+def test_launch_refuses_a_window_for_another_project(tmp_path):
+    workspace, data = tmp_path / "ws", tmp_path / "data"
+    workspace.mkdir()
+
+    async def window(call):
+        await call("workflow_save_definition", definition=DRAWN)
+        return await call("workflow_launch", workflow="custom", goal="g",
+                          definition_id="plan-build", workspace=str(tmp_path / "other"))
+
+    (_, refused), _ = run(workspace, data, window, [], PANEL)
+    assert "another project" in refused["error"]

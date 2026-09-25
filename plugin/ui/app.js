@@ -16,14 +16,14 @@ const bridge = (() => {
   const pending = new Map();
   let seq = 0;
   const post = (message) => handler && handler.postMessage(Object.assign({ version: 1 }, message));
-  function request(type, fields) {
+  function request(type, fields, timeoutMs = 130000) {
     if (!handler) return Promise.reject(new Error("Open this window from Locus."));
     const requestID = "r" + (++seq);
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const timer = timeoutMs && setTimeout(() => {
         pending.delete(requestID);
         reject(new Error("Locus did not answer in time. Try again."));
-      }, 130000);
+      }, timeoutMs);
       pending.set(requestID, { resolve, reject, timer });
       post(Object.assign({ type, requestID }, fields));
     });
@@ -33,6 +33,7 @@ const bridge = (() => {
       if (!message || message.version !== 1) return;
       if (message.type === "hello") {
         state.project = message.project || "";
+        state.workspace = message.workspace || "";
         state.capabilities = message.capabilities || [];
         onHello();
       } else if (message.type === "response") {
@@ -51,7 +52,7 @@ const bridge = (() => {
     saveSettings: (values, revision) => request("saveSettings", { values, revision }),
     compose: (text) => post({ type: "composeChat", text }),
     agents: () => request("listAgents", {}),
-    confirmRun: (fields) => request("confirmRun", fields),
+    confirmRun: (fields) => request("confirmRun", fields, 0),  // waits for a person
     dispatch: (fields) => request("dispatchJob", fields),
     openChat: (runID, agentID) => post({ type: "openAgentChat", runID, agentID }),
     async tool(tool, args) {
@@ -526,13 +527,15 @@ async function handOff(runID, job, again) {
   try {
     const message = await bridge.tool("workflow_dispatch", { attempt_id: runID, operation_id: job.operation_id });
     if (message.handed_before && !again && !state.dispatched.has(job.operation_id)) {
-      // Sent before this window (or Locus) restarted: never send twice on its own.
+      // Delivered before this window (or Locus) restarted: never send twice on its own.
       state.dispatched.set(job.operation_id, { at: Date.now(), earlier: true });
       return;
     }
     await bridge.dispatch({ runID, agentID: message.agent, operationID: job.operation_id,
-      title: message.title, text: message.text, access: message.access });
+      title: message.title, text: message.text, access: message.access, workspace: message.workspace });
     state.dispatched.set(job.operation_id, { at: Date.now(), earlier: false });
+    // Only a delivery Locus confirmed counts as handed over; a refused one is retried.
+    await bridge.tool("workflow_dispatch", { attempt_id: runID, operation_id: job.operation_id, delivered: true });
     toast(`Handed to ${message.agent_name || "the agent"}: ${message.title}`);
   } catch (error) {
     if (/not_confirmed/.test(error.message)) state.confirmed.delete(runID);
@@ -709,7 +712,7 @@ async function startHere() {
   const button = $("start-here");
   button.disabled = true;
   try {
-    const run = await bridge.tool("workflow_launch", args);
+    const run = await bridge.tool("workflow_launch", Object.assign({}, args, state.workspace ? { workspace: state.workspace } : {}));
     toast("Run started");
     state.selected = run.attempt_id;
     state.detail = run;

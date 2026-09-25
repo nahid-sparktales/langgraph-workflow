@@ -124,7 +124,10 @@ def test_a_drawn_change_loops_until_checks_pass_across_restarts(agent):
         host.report(job["operation_id"], "completed", {"summary": "sneaky"})
     first = host.dispatch(job["operation_id"])
     again = host.dispatch(job["operation_id"])  # a retried hand-off keeps its claim
-    assert (first["first"], again["first"], again["claim"]) == (True, False, first["claim"])
+    assert not first["delivered"] and not again["delivered"]
+    assert again["claim"] == first["claim"]
+    assert host.mark_delivered(job["operation_id"]) and not host.mark_delivered(job["operation_id"])
+    assert host.dispatch(job["operation_id"])["delivered"]  # only now "handed over before"
     with pytest.raises(ReportRejected, match="another agent"):
         host.report(job["operation_id"], "completed", {}, claim="guess")
     report(host, job, {"summary": "1. Write result.txt"})
@@ -225,3 +228,26 @@ def test_choices_route_to_their_outcome(agent):
     report(host, job, {"summary": "?", "choice": "maybe"})
     final = ex.resume("cus-2")
     assert (final.status, final.blocker) == ("needs_review", "invalid_choice")
+
+
+def test_a_failed_write_after_passing_checks_is_not_verified(agent):
+    workspace, make = agent
+    after = graph([START, {"id": "check", "type": "check"}, task("w", "write"), END],
+                  [("start", "next", "check"), ("check", "passed", "w"), ("w", "done", "end"),
+                   ("w", "failed", "end")])
+    (workspace / "result.txt").write_text("done\n")
+    host, ex = make()
+    [job] = jobs(host, ex.start(custom_request(after)))
+    (workspace / "result.txt").write_text("broken\n")
+    host.report(job["operation_id"], "failed", {"summary": "gave up"})
+    final = ex.resume("cus-1")
+    assert (final.status, final.blocker) == ("needs_review", "changed_after_checks")
+
+
+def test_blank_titles_fall_back_to_the_step_type():
+    d = copy.deepcopy(CHANGE)
+    d["nodes"][2]["title"] = "   "
+    assert validate_definition(d)["nodes"][2]["title"] == "Approval"
+    d["title"] = "  "
+    with pytest.raises(ContractError, match="workflow title"):
+        validate_definition(d)

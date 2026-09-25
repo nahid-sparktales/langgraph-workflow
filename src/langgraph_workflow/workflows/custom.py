@@ -155,6 +155,8 @@ def build(rt: Runtime) -> StateGraph:
         visit = state["visits"][current["id"]]
         receipt, update = rt.run_job(state, task_spec(state, current, visit))
         update["phase"] = current["id"]
+        if current["access"] == "write" and receipt.changed_files:
+            update["writes_since_check"] = True  # also when the step then fails
         if receipt.status == "failed":
             update["outputs"] = {current["id"]: summary(receipt, current)}
             return follow(state, current, "failed", update)
@@ -165,8 +167,6 @@ def build(rt: Runtime) -> StateGraph:
         result = summary(receipt, current)
         update.update(outputs={current["id"]: result}, status="running",
                       order=[*(state.get("order") or []), current["id"]][-32:])
-        if current["access"] == "write" and receipt.changed_files:
-            update["writes_since_check"] = True
         port = "done"
         if current["choices"]:
             port = result["choice"]

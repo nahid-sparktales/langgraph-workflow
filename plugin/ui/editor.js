@@ -124,6 +124,7 @@ async function loadDefinitions(selectID) {
 async function openDefinition(id) {
   editor.selected = null;
   editor.problems = [];
+  editor.picking = false;
   if (editor.drafts[id]) {
     editor.current = editor.drafts[id];
   } else {
@@ -152,8 +153,7 @@ function newFromTemplate(template) {
   renderEditor();
 }
 
-function serializable() {
-  const d = editor.current;
+function serializable(d = editor.current) {
   return {
     id: d.id, title: d.title, description: d.description || "", agent: d.agent || "", agent_name: d.agent_name || "",
     nodes: d.nodes.map((node) => {
@@ -172,17 +172,22 @@ async function saveCurrent() {
   if (!editor.current || editor.saving) return;
   editor.saving = true;
   renderToolbar();
+  const draft = editor.current;
+  const sent = JSON.stringify(serializable(draft));
   try {
-    const result = await bridge.tool("workflow_save_definition", { definition: serializable() });
+    const result = await bridge.tool("workflow_save_definition", { definition: JSON.parse(sent) });
     if (result.problems) {
       editor.problems = result.problems;
       toast("Not saved yet: fix the problem shown above the map.", true);
     } else {
       editor.problems = [];
-      delete editor.drafts[editor.current.id];
-      editor.current = Object.assign(result.saved, { dirty: false, isNew: false });
+      draft.isNew = false;
+      if (JSON.stringify(serializable(draft)) === sent) {  // not edited while saving
+        delete editor.drafts[draft.id];
+        if (editor.current === draft) editor.current = Object.assign(result.saved, { dirty: false, isNew: false });
+      }
       toast("Workflow saved");
-      await loadDefinitions(editor.current.id);
+      await loadDefinitions(editor.current ? editor.current.id : draft.id);
     }
   } catch (error) {
     editor.problems = [error.message];
@@ -215,6 +220,8 @@ function renderEditor() {
 function renderToolbar() {
   const bar = $("wf-toolbar");
   if (!bar) return;
+  const typing = document.activeElement && document.activeElement.classList.contains("wf-title")
+    ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
   const d = editor.current;
   const picker = h("select", { id: "wf-picker", "aria-label": "Workflow", onchange: (event) => {
     if (event.target.value === "__new") { editor.picking = true; renderEditor(); } else openDefinition(event.target.value);
@@ -246,6 +253,8 @@ function renderToolbar() {
     }
   }
   bar.replaceChildren(...nodes);
+  const title = bar.querySelector(".wf-title");
+  if (typing && title) { title.focus(); title.setSelectionRange(...typing); }
 }
 
 function agentSelect(value, label, onPick, noneLabel) {
@@ -439,11 +448,11 @@ function startConnect(event, node, port, board) {
 }
 
 function connect(from, port, to) {
-  const source = byId(from), target = byId(to);
-  if (!source || !target || target.type === "start") { toast("Nothing can connect into Start.", true); drawEdges(); return; }
+  const source = byId(from), target = to ? byId(to) : null;
+  if (!source || (to && (!target || target.type === "start"))) { toast("Nothing can connect into Start.", true); drawEdges(); return; }
   const d = editor.current;
   if (source.type === "split") {
-    if (!d.edges.some((e) => e.from === from && e.to === to)) d.edges.push({ from, on: port, to });
+    if (to && !d.edges.some((e) => e.from === from && e.to === to)) d.edges.push({ from, on: port, to });
   } else {
     d.edges = d.edges.filter((e) => !(e.from === from && e.on === port));
     if (to) d.edges.push({ from, on: port, to });
@@ -565,7 +574,9 @@ function nodeInspector(node) {
       h("span", { class: "hint" }, node.access === "write" ? "Its edits are recorded and your checks decide if they worked." : "If it changes any file, the run stops.")));
     const choices = h("input", { type: "text", value: (node.choices || []).join(", "), placeholder: "e.g. approve, changes", spellcheck: "false" });
     choices.addEventListener("change", () => {
-      const next = choices.value.split(",").map((c) => slug(c).replace(/-/g, "_")).filter(Boolean).slice(0, 6);
+      const next = [...new Set(choices.value.split(",")
+        .map((c) => c.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40))
+        .filter((c) => c && c !== "failed"))].slice(0, 6);
       const gone = (node.choices && node.choices.length ? node.choices : ["done"]).filter((p) => !next.includes(p));
       editor.current.edges = editor.current.edges.filter((e) => !(e.from === node.id && gone.includes(e.on)));
       node.choices = next;

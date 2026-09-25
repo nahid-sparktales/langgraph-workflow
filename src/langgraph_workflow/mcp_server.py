@@ -28,6 +28,7 @@ from mcp_types import ToolAnnotations
 from pydantic import create_model
 
 from .agent_host import AgentHost, ReportRejected
+from .checkpoints import AttemptBusy
 from .contracts import TERMINAL_STATUSES, AttemptStatus, ContractError, digest
 from .definitions import validate_definition
 from .executor import DecisionRejected, WorkflowExecutor
@@ -291,9 +292,12 @@ def _job(spec: dict) -> dict[str, Any]:
 def _handoff_text(attempt_id: str, spec: dict, claim: str) -> str:
     """The message Locus sends to the assigned agent's chat for one job."""
     inputs = spec["inputs"]
+    # Bounded well under Locus's 16,000-character message limit: the goal and
+    # earlier results are shortened; the instruction and the report call never are.
+    goal = inputs.get("goal", "")
     lines = [
         f"LangGraph Workflows hands you step \"{inputs.get('title', '')}\" of a workflow run.",
-        f"Goal of the run: {inputs.get('goal', '')}",
+        f"Goal of the run: {goal[:3000]}{' […]' if len(goal) > 3000 else ''}",
         "",
         spec["instruction"],
         "",
@@ -302,7 +306,8 @@ def _handoff_text(attempt_id: str, spec: dict, claim: str) -> str:
     ]
     if inputs.get("context"):
         lines += ["", "Results of earlier steps:"]
-        lines += [f"- {c.get('title', '')}: {c.get('summary', '')}" for c in inputs["context"]]
+        lines += [f"- {c.get('title', '')}: {c.get('summary', '')[:800]}"
+                  for c in inputs["context"]]
     if inputs.get("choices"):
         lines += ["", "Finish by choosing exactly one of: " + ", ".join(inputs["choices"])]
     lines += ["", "When done, call the workflow_report tool with:",
@@ -325,17 +330,26 @@ def _custom_steps(definition: dict, values: dict, status: AttemptStatus) -> list
         order.append(current)
         queue += [e["to"] for e in definition["edges"] if e["from"] == current]
     visits, current = values.get("visits") or {}, values.get("node")
+    outputs = values.get("outputs") or {}
     finished = status.status in TERMINAL_STATUSES
+    # Parallel branches run by Send and are not counted as visits.
+    branches_now = {e["from"] for e in definition["edges"]
+                    if e["to"] == current and by_id.get(current, {}).get("type") == "join"}
     out = []
     for node_id in order:
         node = by_id[node_id]
         if node["type"] == "start":
             continue
-        if node_id == current and not finished:
+        settled = outputs.get(node_id, {}).get("status") == "settled"
+        if node_id in branches_now and not settled and not finished:
+            state = "current"
+        elif node_id in branches_now and not settled:
+            state = "stopped"
+        elif node_id == current and not finished:
             state = "current"
         elif node_id == current:
             state = "done" if status.status == "verified" else "stopped"
-        elif visits.get(node_id):
+        elif visits.get(node_id) or settled:
             state = "done"
         else:
             state = "upcoming"
@@ -439,10 +453,14 @@ def build_server(data: Path) -> MCPServer:
         return await advance(ctx, host, executor, status)
 
     async def begin(ctx, workflow, goal, checks, plan_steps, investigations, reviewer,
-                    definition_id):
+                    definition_id, expected_workspace: str = ""):
         if reviewer is None:
             reviewer = spaces.settings()["reviewer_default"]
-        key = spaces.key_for(await _workspace(ctx))
+        workspace = await _workspace(ctx)
+        if expected_workspace and Path(expected_workspace).resolve() != workspace:
+            raise ToolError(f"Locus is showing another project ({workspace.name}). Switch Locus "
+                            f"to {Path(expected_workspace).name} to start a run from this window.")
+        key = spaces.key_for(workspace)
         host, executor = spaces.get(key)
         attempt = f"lgw-{key}-{uuid.uuid4().hex[:10]}"
         request: dict[str, Any] = {
@@ -474,8 +492,28 @@ def build_server(data: Path) -> MCPServer:
             host.report(operation_id, outcome, result, note, claim)
         except ReportRejected as error:
             raise ToolError(str(error)) from error
-        status = await asyncio.to_thread(executor.resume, attempt_id)
+        status = await resume_when_free(executor, attempt_id)
         return await advance(ctx, host, executor, status)
+
+    async def resume_when_free(executor: WorkflowExecutor, attempt_id: str) -> AttemptStatus:
+        """Resume; if another chat's process is advancing this run right now
+        (parallel branches reported at once), wait for it rather than fail."""
+        for _ in range(40):
+            try:
+                return await asyncio.to_thread(executor.resume, attempt_id)
+            except AttemptBusy:
+                await asyncio.sleep(0.25)
+        return await asyncio.to_thread(executor.status, attempt_id)
+
+    async def settle(host: AgentHost, executor: WorkflowExecutor,
+                     status: AttemptStatus) -> AttemptStatus:
+        """A run parked for a job that has since been reported moves on."""
+        if status.status == "waiting_for_job" and not host.pending(status.attempt_id):
+            try:
+                return await asyncio.to_thread(executor.resume, status.attempt_id)
+            except AttemptBusy:
+                pass
+        return status
 
     @server.tool(annotations=READ_ONLY)
     async def workflow_status(attempt_id: str, ctx: Context) -> dict:
@@ -521,6 +559,7 @@ def build_server(data: Path) -> MCPServer:
             for row in await asyncio.to_thread(executor.store.attempts, 50):
                 try:
                     status = await asyncio.to_thread(executor.status, row["attempt_id"])
+                    status = await settle(host, executor, status)
                 except Exception:  # noqa: BLE001 - one unreadable run must not hide the rest
                     continue
                 runs.append(summary(key, host, status))
@@ -533,7 +572,8 @@ def build_server(data: Path) -> MCPServer:
         checks with evidence, and recent activity."""
         host, executor = spaces.for_attempt(attempt_id)
         match = _ATTEMPT.match(attempt_id)
-        status = await asyncio.to_thread(executor.status, attempt_id)
+        status = await settle(host, executor,
+                              await asyncio.to_thread(executor.status, attempt_id))
         values, _ = await asyncio.to_thread(executor._snapshot, attempt_id)
         request = values.get("request", {})
         pending = host.pending(attempt_id)
@@ -605,22 +645,27 @@ def build_server(data: Path) -> MCPServer:
             workflow: Literal["verified_change", "research", "custom"], goal: str, ctx: Context,
             checks: list[dict] | None = None, plan_steps: list[str] | None = None,
             investigations: list[str] | None = None, reviewer: bool | None = None,
-            definition_id: str | None = None,
+            definition_id: str | None = None, workspace: str = "",
         ) -> dict:
             """Start a run from the window. Decisions wait in the window
-            instead of prompting in a chat."""
+            instead of prompting in a chat. workspace: the window's project."""
             host, executor, request = await begin(ctx, workflow, goal, checks, plan_steps,
-                                                  investigations, reviewer, definition_id)
+                                                  investigations, reviewer, definition_id,
+                                                  workspace)
             await asyncio.to_thread(executor.start, request)
             return await workflow_run(request["attempt_id"])
 
     if "workflow_dispatch" in panel_tools:
         @server.tool(annotations=STATEFUL)
-        async def workflow_dispatch(attempt_id: str, operation_id: str) -> dict:
-            """The message that hands one assigned step to its agent's chat."""
+        async def workflow_dispatch(attempt_id: str, operation_id: str,
+                                    delivered: bool = False) -> dict:
+            """The message that hands one assigned step to its agent's chat.
+            Call again with delivered=true once Locus has sent it."""
             host, _ = spaces.for_attempt(attempt_id)
             if not operation_id.startswith(attempt_id + "/"):
                 raise ToolError("operation_id does not belong to this attempt")
+            if delivered:
+                return {"delivered": host.mark_delivered(operation_id)}
             try:
                 handed = host.dispatch(operation_id)
             except ReportRejected as error:
@@ -628,7 +673,8 @@ def build_server(data: Path) -> MCPServer:
             spec = handed["spec"]
             return {"agent": spec["assignee"], "agent_name": spec["inputs"].get("agent_name", ""),
                     "title": spec["inputs"].get("title", ""), "access": spec["access"],
-                    "handed_before": not handed["first"],
+                    "workspace": str(host.workspace),
+                    "handed_before": handed["delivered"],
                     "text": _handoff_text(attempt_id, spec, handed["claim"])}
 
     if "workflow_decide" in panel_tools:

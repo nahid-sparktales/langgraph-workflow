@@ -54,7 +54,8 @@ CREATE TABLE IF NOT EXISTS events (
     seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT UNIQUE, attempt_id TEXT, payload TEXT);
 CREATE TABLE IF NOT EXISTS cancels (attempt_id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS claims (
-    operation_id TEXT PRIMARY KEY, token TEXT NOT NULL, dispatched_at REAL NOT NULL);
+    operation_id TEXT PRIMARY KEY, token TEXT NOT NULL, dispatched_at REAL NOT NULL,
+    delivered_at REAL);
 """
 
 
@@ -162,12 +163,19 @@ class AgentHost:
             if not spec.get("assignee"):
                 db.execute("ROLLBACK")
                 raise ReportRejected("this job is not assigned to a particular agent")
-            first = db.execute("INSERT OR IGNORE INTO claims VALUES (?,?,?)",
-                               (operation_id, secrets.token_urlsafe(18), time.time())).rowcount
-            token = db.execute("SELECT token FROM claims WHERE operation_id=?",
-                               (operation_id,)).fetchone()["token"]
+            db.execute("INSERT OR IGNORE INTO claims VALUES (?,?,?,NULL)",
+                       (operation_id, secrets.token_urlsafe(18), time.time()))
+            claim = db.execute("SELECT token, delivered_at FROM claims WHERE operation_id=?",
+                               (operation_id,)).fetchone()
             db.execute("COMMIT")
-        return {"claim": token, "spec": spec, "first": bool(first)}
+        return {"claim": claim["token"], "spec": spec,
+                "delivered": claim["delivered_at"] is not None}
+
+    def mark_delivered(self, operation_id: str) -> bool:
+        """Record that the runtime delivered the hand-off to the agent's chat."""
+        with self._db() as db:
+            return db.execute("UPDATE claims SET delivered_at=? WHERE operation_id=? AND "
+                              "delivered_at IS NULL", (time.time(), operation_id)).rowcount > 0
 
     def report(self, operation_id: str, outcome: str, result: Any, note: str = "",
                claim: str = "") -> JobReceipt:

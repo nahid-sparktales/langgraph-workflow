@@ -79,7 +79,7 @@ def _node(raw: Any) -> dict:
     shown = raw.get("title") if isinstance(raw.get("title"), str) and raw.get("title") else node_id
     label = f"Step “{shown[:60]}”:"
     node = {"id": node_id, "type": kind,
-            "title": text(raw.get("title") or kind.title(), f"{label} title", 120),
+            "title": text((raw.get("title") or "").strip() or kind.title(), f"{label} title", 120),
             "x": _int(raw.get("x"), f"{label} x", -10_000, 10_000, 0),
             "y": _int(raw.get("y"), f"{label} y", -10_000, 10_000, 0)}
     if kind == "task":
@@ -131,7 +131,8 @@ def validate_definition(value: Any) -> dict:
         raise ContractError("step ids must be unique")
     definition = {
         "schema": SCHEMA, "id": _slug(raw.get("id"), "workflow id"),
-        "title": text(raw.get("title"), "workflow title", 120, required=True),
+        "title": text(raw.get("title").strip() if isinstance(raw.get("title"), str)
+                      else raw.get("title"), "workflow title", 120, required=True),
         "description": text(raw.get("description") or "", "workflow description", 2000),
         "agent": _agent(raw.get("agent"), "default agent"),
         "agent_name": text(raw.get("agent_name") or "", "default agent name", 120),

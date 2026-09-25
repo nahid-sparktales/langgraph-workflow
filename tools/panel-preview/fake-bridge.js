@@ -129,12 +129,14 @@
           jobs: [{ operation_id: id + "/" + first.id + "-1", kind: "task", access: first.access, title: first.title, agent: first.agent, agent_name: first.agent_name, instruction: first.instruction }],
           checks: (args.checks || []).map((c) => ({ ...c, state: "not_run", detail: "" })), activity: [{ type: "workflow.started", payload: {} }] };
         out = runs[id];
+      } else if (tool === "workflow_dispatch" && args.delivered) {
+        handed.add(args.operation_id);
+        out = { delivered: true };
       } else if (tool === "workflow_dispatch") {
         const run = runs[args.attempt_id];
         const job = run.jobs.find((j) => j.operation_id === args.operation_id);
         out = { agent: job.agent, agent_name: job.agent_name, title: job.title, access: job.access, handed_before: handed.has(job.operation_id),
-          text: `LangGraph Workflows hands you step "${job.title}"…` };
-        handed.add(job.operation_id);
+          workspace: "/Users/you/Projects/locus", text: `LangGraph Workflows hands you step "${job.title}"…` };
       }
       else if (tool === "workflow_run") out = runs[args.attempt_id];
       else if (tool === "workflow_decide") {

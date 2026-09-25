@@ -89,7 +89,10 @@ window in `.codex-plugin/plugin.json` under `locus.panels`. Open it from
   add "Done when" checks, then **Start run**. Locus asks once, in its own
   dialog, whether the plugin may hand this run's steps to the listed agents.
   After that each step goes to its agent's own chat in the project, on that
-  agent's model and plan, while the window is open. Steps without an agent
+  agent's model and plan, while the window is open. A step counts as handed
+  over only once Locus confirms it was sent; if the agent is still busy with
+  its previous step, the window tries again. A window starts runs only in
+  its own project: if Locus is showing another project, it says so. Steps without an agent
   are done by whichever chat continues the run.
 - **Settings**: approvals, the default review step, limits and how long
   finished runs are kept. Locus validates them against
