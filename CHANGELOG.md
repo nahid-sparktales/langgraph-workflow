@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.1 — 2026-09-25
+
+- Fix: the plugin failed to start inside the Locus app ("MCP server closed the
+  connection during connect/initialize"). The Python bundled with Locus has
+  neither pip nor ensurepip, so creating the plugin's environment failed. The
+  plugin now ships a checksummed pip wheel, creates its environment without
+  ensurepip, and verifies every vendored wheel before using it.
+
 ## 0.4.0 — 2026-09-24
 
 - Drawn workflows (`workflow="custom"`): a graph of agent steps, approvals,

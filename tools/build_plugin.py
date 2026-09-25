@@ -14,6 +14,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "plugin"
+# Vendored so the launcher works with Pythons that ship without pip or
+# ensurepip, such as the runtime bundled in the Locus app.
+PIP = "pip==26.2.1"
 
 
 def main() -> None:
@@ -22,6 +25,8 @@ def main() -> None:
         old.unlink()
     subprocess.run([sys.executable, "-m", "build", "--wheel", "--outdir", str(wheels), str(ROOT)],
                    check=True)
+    subprocess.run([sys.executable, "-m", "pip", "download", "--quiet", "--no-deps",
+                    "--only-binary=:all:", "--dest", str(wheels), PIP], check=True)
     sums = "".join(f"{hashlib.sha256(w.read_bytes()).hexdigest()}  {w.name}\n"
                    for w in sorted(wheels.glob("*.whl")))
     (wheels / "SHA256SUMS").write_text(sums)

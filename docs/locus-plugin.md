@@ -16,7 +16,8 @@ needs a Locus build with plugin panels.
 3. The first time the server starts, the launcher builds a private virtual
    environment under the plugin's data folder from `plugin/requirements.lock`
    (hash-pinned wheels from PyPI, so it needs network once) plus the vendored,
-   checksummed `langgraph-workflow` wheel. Later starts reuse it.
+   checksummed `langgraph-workflow` and `pip` wheels. pip is vendored because
+   the Python bundled with Locus ships without pip or ensurepip. Later starts reuse it.
 4. Ask the Locus agent for a verified change or a research task; the
    `langgraph-workflow` skill tells it how to use the tools.
 

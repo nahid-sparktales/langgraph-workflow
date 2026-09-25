@@ -39,3 +39,18 @@ def test_wheel_installs_and_runs_demo_outside_checkout(tmp_path):
     assert "process 5 resume: verified" in out
     assert "process 2 decide prefer:0: verified" in out
     assert "(never repeated)" in out
+
+
+def test_plugin_launcher_works_with_a_python_without_pip(tmp_path):
+    """The Python bundled in Locus has neither pip nor ensurepip; the
+    launcher must still build its environment and start the server."""
+    shadow = tmp_path / "no-ensurepip"
+    shadow.mkdir()
+    (shadow / "ensurepip.py").write_text("raise SystemExit('ensurepip is not available')\n")
+    env = os.environ | {"LGW_PYTHON": sys.executable, "LGW_DATA": str(tmp_path / "data"),
+                        "PYTHONPATH": str(shadow)}
+    done = subprocess.run(["/bin/sh", str(ROOT / "plugin/bin/launch")], env=env,
+                          stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=900)
+    assert done.returncode == 0, done.stderr[-4000:]
+    [venv_dir] = (tmp_path / "data").glob("venv-*")
+    assert (venv_dir / "bin/python").exists()

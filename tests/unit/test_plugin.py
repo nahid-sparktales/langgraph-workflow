@@ -55,8 +55,13 @@ def test_settings_schema_matches_server_defaults():
 
 
 def test_vendored_wheel_matches_source_and_checksum():
-    sums = (PLUGIN / "wheels/SHA256SUMS").read_text().split()
-    expected, name = sums
+    sums = dict(reversed(line.split()) for line in
+                (PLUGIN / "wheels/SHA256SUMS").read_text().splitlines())
+    assert sorted(p.name for p in (PLUGIN / "wheels").glob("*.whl")) == sorted(sums)
+    [pip] = [n for n in sums if n.startswith("pip-")]  # for Pythons without pip
+    assert hashlib.sha256((PLUGIN / "wheels" / pip).read_bytes()).hexdigest() == sums[pip]
+    [name] = [n for n in sums if n.startswith("langgraph_workflow-")]
+    expected = sums[name]
     wheel = PLUGIN / "wheels" / name
     assert name == f"langgraph_workflow-{langgraph_workflow.__version__}-py3-none-any.whl"
     assert hashlib.sha256(wheel.read_bytes()).hexdigest() == expected

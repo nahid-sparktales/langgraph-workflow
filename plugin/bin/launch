@@ -46,22 +46,27 @@ if [ ! -x "$venv/bin/python" ]; then
   build="$data/.build-$$"
   rm -rf "$build"
   trap 'rm -rf "$build"' EXIT
-  "$python" -m venv "$build" >&2
-  "$build/bin/python" -m pip install --quiet --disable-pip-version-check \
-    --require-hashes --only-binary=:all: -r "$root/requirements.lock" >&2
-  "$build/bin/python" - "$root/wheels" >&2 <<'PY'
-import hashlib, pathlib, subprocess, sys
+  # Every vendored wheel (pip and this package) is checked before it is used.
+  "$python" - "$root/wheels" >&2 <<'PY'
+import hashlib, pathlib, sys
 wheels = pathlib.Path(sys.argv[1])
 for line in (wheels / "SHA256SUMS").read_text().split("\n"):
-    if not line.strip():
-        continue
-    expected, name = line.split()
-    wheel = wheels / name
-    if hashlib.sha256(wheel.read_bytes()).hexdigest() != expected:
-        sys.exit(f"checksum mismatch for {name}")
-    subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--no-deps",
-                    "--no-index", "--disable-pip-version-check", str(wheel)], check=True)
+    if line.strip():
+        expected, name = line.split()
+        if hashlib.sha256((wheels / name).read_bytes()).hexdigest() != expected:
+            sys.exit(f"checksum mismatch for {name}")
 PY
+  # Without ensurepip (absent from the Python bundled in Locus): pip comes
+  # from the vendored wheel instead.
+  "$python" -m venv --without-pip "$build" >&2
+  set -- "$root"/wheels/pip-*.whl
+  "$build/bin/python" "$1/pip" install --quiet --no-index --no-deps \
+    --disable-pip-version-check "$1" >&2
+  "$build/bin/python" -m pip install --quiet --disable-pip-version-check \
+    --require-hashes --only-binary=:all: -r "$root/requirements.lock" >&2
+  set -- "$root"/wheels/langgraph_workflow-*.whl
+  "$build/bin/python" -m pip install --quiet --no-deps --no-index \
+    --disable-pip-version-check "$1" >&2
   rm -rf "$venv"
   mv "$build" "$venv"
   trap - EXIT
