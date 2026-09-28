@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- The package ceiling for `max_jobs` is now 32 (was 12), so multi-agent drawn
+  workflows such as a full trading team (analysts, debates, managers) fit in one
+  attempt. Hosts still narrow it: the Locus plugin keeps its own default of 12.
+
 ## 0.4.1 — 2026-09-25
 
 - Fix: the plugin failed to start inside the Locus app ("MCP server closed the

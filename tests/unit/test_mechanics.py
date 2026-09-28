@@ -40,7 +40,7 @@ def test_fan_in_reducer_is_order_independent_and_idempotent():
 def test_limits_only_narrow():
     limits = effective_limits({"max_jobs": 50, "max_repair_rounds": 1}, {"max_writers": 3},
                               {"max_parallel_reads": 0, "unknown": 9, "max_jobs": "x"})
-    assert limits["max_jobs"] == 12 and limits["max_repair_rounds"] == 1
+    assert limits["max_jobs"] == 32 and limits["max_repair_rounds"] == 1
     assert limits["max_writers"] == 1 and limits["max_parallel_reads"] == 1
     assert "unknown" not in limits
 
