@@ -129,7 +129,7 @@ branches run in LangGraph's own thread pool bounded by `max_concurrency`.
 
 Graph limits (`policy.py`) only narrow: the effective value is the minimum
 of package defaults, host admission and request settings (floors: one read
-worker, ten transitions). Defaults — 2 parallel reads, 1 writer, 12 jobs,
+worker, ten transitions). Defaults — 2 parallel reads, 1 writer, 32 jobs,
 2 repair rounds, 2 review rounds, 4 investigations, no delegation — are
 conservative engineering choices, not measured optima.
 

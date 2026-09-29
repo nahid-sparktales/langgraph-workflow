@@ -11,7 +11,7 @@ from __future__ import annotations
 DEFAULT_LIMITS = {
     "max_parallel_reads": 2,  # concurrent read-only jobs
     "max_writers": 1,  # concurrent writer jobs (the graph never exceeds one)
-    "max_jobs": 12,  # total admitted jobs per attempt, across resumes
+    "max_jobs": 32,  # total admitted jobs per attempt, across resumes (hosts narrow it)
     "max_repair_rounds": 2,
     "max_review_rounds": 2,
     "max_investigations": 4,
